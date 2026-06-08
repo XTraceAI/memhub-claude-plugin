@@ -1,5 +1,6 @@
 {
   "name": "memhub",
+  "description": "MemHub plugins for Claude Code — auto-capture coding sessions into team memory.",
   "owner": {
     "name": "XTrace",
     "email": "felixmeng@xtrace.ai"

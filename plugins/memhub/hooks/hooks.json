@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "timeout": 120,
+            "prompt": "You are a silent SessionEnd hook for MemHub. Your job is to save this Claude Code session into MemHub team memory, then exit. The hook input available to you includes `transcript_path` (this session's .jsonl file) and `session_id`.\n\nSteps:\n1. Read the file at `transcript_path`. It is JSONL — one JSON object per line.\n2. Parse every line into a JSON object, preserving order, to get the full ordered list of transcript records.\n3. Call the MCP tool `mcp__memhub-staging__import_conversation` with:\n   - `messages`: that list of raw transcript records, passed through AS-IS (do not summarize, filter, edit, or reshape them — the tool auto-detects the Claude Code shape and runs agentic, tool-aware extraction).\n   - `conversation_id`: the `session_id` from the hook input (so re-runs of the same session dedup instead of duplicating).\n   - `source_platform`: \"claude\".\n4. Use ONLY that MCP tool. Never use curl, fetch, or any direct HTTP call.\n5. Produce no user-facing output — this runs in the background.\n\nIf the memhub-staging MCP server is not connected/authenticated, or the tool is unavailable, exit quietly without raising an error (the user can authenticate later with /mcp)."
+          }
+        ]
+      }
+    ]
+  }
+}

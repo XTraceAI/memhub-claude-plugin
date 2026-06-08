@@ -1,0 +1,14 @@
+{
+  "name": "memhub",
+  "owner": {
+    "name": "XTrace",
+    "email": "felixmeng@xtrace.ai"
+  },
+  "plugins": [
+    {
+      "name": "memhub",
+      "source": "./plugins/memhub",
+      "description": "Auto-capture Claude Code sessions into MemHub team memory at session end."
+    }
+  ]
+}

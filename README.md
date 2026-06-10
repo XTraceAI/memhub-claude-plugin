@@ -19,7 +19,8 @@ plugins/memhub/
     ├── handoff-session/            # hand the current session to a teammate
     ├── import-session/             # import a past session, any size
     ├── save-artifact/              # store a file as a MemHub artifact
-    └── search-memory/              # read-only team-memory recall
+    ├── search-memory/              # read-only team-memory recall
+    └── spec/                       # spec-driven dev on versioned spec artifacts
 plugins/fleet/
 ├── .claude-plugin/plugin.json      # plugin manifest
 ├── hooks/hooks.json                # SessionStart/UserPromptSubmit/PostToolUse/SessionEnd
@@ -75,9 +76,9 @@ memhub terminal script interactively — e.g. `/memhub:import-session` — or by
 setting `$MEMHUB_TOKEN`. Until then the hook degrades silently (the
 SessionEnd agent hook still captures everything at close).
 
-## Skills (v0.5)
+## Skills (v0.6)
 
-Four skills ship in `plugins/memhub/skills/` (the deprecated `commands/`
+Five skills ship in `plugins/memhub/skills/` (the deprecated `commands/`
 format is gone; invocation is unchanged). Each is both user-invocable as
 `/memhub:<name>` and **model-invocable**: saying "save this spec to memhub" or
 "what did we decide about X?" in plain language triggers the right skill.
@@ -94,6 +95,17 @@ format is gone; invocation is unchanged). Each is both user-invocable as
   state, decisions, next steps, gotchas) plus the full session import, and
   shares it read-only via `share_context_base`. The teammate's agent picks it
   up by searching that context base.
+- `/memhub:spec <init|revise|check|status>` — spec-driven development on team
+  memory. The spec is a **versioned artifact** (every revision carries a
+  rationale; versions are diffable via `diff_artifact_versions`) living in its
+  own shareable context base alongside reviews, ADRs, and imported
+  implementation sessions, mirrored by a file in the repo
+  (`docs/specs/<slug>.md`). A `spec:<slug>` tag threads everything together.
+  `init` drafts/uploads and shares; `revise` versions with a required
+  rationale and reports the diff; `check` detects the spec drifting under
+  this session's work (local file vs. artifact lineage); `status` is the
+  multiplayer view — decisions, sessions, and artifacts accumulated in the
+  spec's context base.
 
 ## Fleet plugin (v0.1)
 

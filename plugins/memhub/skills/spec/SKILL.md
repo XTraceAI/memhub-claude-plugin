@@ -29,24 +29,33 @@ uv run --with mcp python "${CLAUDE_PLUGIN_ROOT}/scripts/save_artifact.py" \
   [--parent-id "<latest-version-id>"] [--rationale "<why>"]
 ```
 
-Arguments: `$ARGUMENTS` — first token is the subcommand; with no subcommand,
-infer it from what the user said (creating → init, editing → revise, "did it
-change" → check, "where are we" → status).
+Arguments: `$ARGUMENTS` — the first token is the subcommand and is consumed
+before the per-subcommand parsing below; each subcommand reads only the
+REMAINING tokens. With no recognized subcommand, infer one from what the user
+said (creating → init, editing → revise, "did it change" → check, "where are
+we" → status) and treat all of `$ARGUMENTS` as its arguments.
 
 ## init `[file-path | title...] [for <teammates>]`
 
-1. Get the spec content. If the first token is an existing file path, that
+1. Get the spec content. If the first remaining token is an existing file
+   path (e.g. `init docs/specs/retry.md` → `docs/specs/retry.md`), that
    file IS the spec. Otherwise compose the spec from the current conversation
    (sections: Goal, Non-goals, Design, Decisions, Open questions, Milestones)
    and write it to `docs/specs/<slug>.md` in the repo — composing it yourself
    is the point here; this is NOT the file-upload case the save-artifact
    skill guards against. Derive `<title>` from the argument or content;
    `<slug>` is its short kebab-case form.
-2. `create_context_base` with `name: "Spec: <title>"` and a one-line
-   description. Omit `workspace_id` (you need creator/contributor access to
-   share it). If `list_context_bases` shows one with this exact name already,
-   reuse it instead and treat this as a revise.
-3. Upload the file with the script (no `--parent-id` on first version).
+2. Check `list_context_bases` for one named exactly `"Spec: <title>"`. If it
+   exists, this spec already has a lineage: STOP the init flow here and run
+   the **revise** steps instead (resolve the existing artifact, `--parent-id`
+   the newest version, require a rationale) — uploading without a parent
+   would create a second root artifact and break check/revise diffs. Any
+   `for <teammates>` sharing still applies (step 4, against the existing
+   context base).
+   Otherwise `create_context_base` with that name and a one-line description.
+   Omit `workspace_id` (you need creator/contributor access to share it).
+3. Upload the file with the script (no `--parent-id` — this is the first
+   version of a fresh lineage).
 4. If the user named teammates ("for Alice and Bob"), resolve each via
    `list_teammates` (case-insensitive; ambiguous → show candidates and ask,
    never guess between two people) and `share_context_base` with each

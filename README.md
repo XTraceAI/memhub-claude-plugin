@@ -58,16 +58,12 @@ watermark, so the full transcript is re-sent but only the **delta** is ever
 processed — total extraction cost is the same as a single end-of-session
 import.
 
-**Extra prerequisite for the flush hook:** it authenticates with the
-`memhub` CLI token (the async hook can't reuse the session's MCP OAuth), so
-run once:
-
-```bash
-uvx memhub login
-```
-
-Without it the hook degrades silently (the SessionEnd agent hook still
-captures everything at close).
+The flush hook authenticates with the plugin's own OAuth (same Auth0 client
+as the `/mcp` connector, cached at `~/.config/memhub-plugin/`). A background
+hook never opens a browser, so the cache must be seeded once by running any
+memhub terminal script interactively — e.g. `/memhub:import-session` — or by
+setting `$MEMHUB_TOKEN`. Until then the hook degrades silently (the
+SessionEnd agent hook still captures everything at close).
 
 ## Notes & trade-offs
 

@@ -103,7 +103,16 @@ class _FileTokenStorage(TokenStorage):
         return None  # static public client — nothing to persist
 
 
-def build_oauth(url: str) -> OAuthClientProvider:
+class NonInteractiveAuthRequired(RuntimeError):
+    """Raised instead of opening a browser when interactive=False.
+
+    Background hooks must never pop a browser at the user — they catch this
+    and degrade quietly. Only the full authorization flow hits this; a cached
+    token (even an expired one with a refresh token) never does.
+    """
+
+
+def build_oauth(url: str, interactive: bool = True) -> OAuthClientProvider:
     cfg = _plugin_mcp_config()
     oauth_cfg = cfg.get("oauth", {})
     client_id = oauth_cfg.get("clientId")
@@ -113,6 +122,10 @@ def build_oauth(url: str) -> OAuthClientProvider:
     redirect_uri = f"http://localhost:{port}/callback"
 
     async def redirect_handler(auth_url: str) -> None:
+        if not interactive:
+            raise NonInteractiveAuthRequired(
+                "no cached OAuth token and interactive auth is disabled"
+            )
         print(f"Opening browser to authenticate (same flow as /mcp)...\n  {auth_url}")
         webbrowser.open(auth_url)
 
@@ -240,18 +253,20 @@ def _make_callback_handler(port: int):
     return callback_handler
 
 
-def resolve_url_and_auth(url: str | None = None):
+def resolve_url_and_auth(url: str | None = None, interactive: bool = True):
     """Return (url, headers, auth) for streamablehttp_client.
 
     $MEMHUB_TOKEN (if set) wins as a plain bearer header — CI/headless escape
     hatch. Otherwise an OAuthClientProvider that reuses the cached token,
-    refreshes it, or runs the one-time browser flow.
+    refreshes it, or runs the one-time browser flow. With interactive=False
+    (background hooks) the browser flow raises NonInteractiveAuthRequired
+    instead of opening a tab; cached/refreshed tokens still work.
     """
     url = url or default_url()
     token = os.environ.get("MEMHUB_TOKEN", "").strip()
     if token:
         return url, {"Authorization": f"Bearer {token}"}, None
-    return url, None, build_oauth(url)
+    return url, None, build_oauth(url, interactive=interactive)
 
 
 if __name__ == "__main__":

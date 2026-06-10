@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """Search-only verification helper — confirm what an import landed.
 
-    export MEMHUB_TOKEN="$(cd ../memhub-cli && uv run memhub token)"
+Auth = the SAME OAuth the /mcp connector uses (shared `_memhub_auth`):
+$MEMHUB_TOKEN if set, else the cached plugin OAuth token, else a one-time
+browser approval.
+
     uv run --with mcp python scripts/search_verify.py \
         --query "context agent" --created-after 2026-06-09
 """
 from __future__ import annotations
 
-import argparse, asyncio, json, os, sys
+import argparse, asyncio, json, sys
+from pathlib import Path
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-URL = "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "memhub" / "scripts"))
+from _memhub_auth import resolve_url_and_auth  # noqa: E402
 
 
 def unwrap(result) -> dict:
@@ -35,17 +40,12 @@ async def main() -> int:
     ap.add_argument("--top-k", type=int, default=10)
     args = ap.parse_args()
 
-    token = os.environ.get("MEMHUB_TOKEN", "").strip()
-    if not token:
-        print("ERROR: set MEMHUB_TOKEN", file=sys.stderr)
-        return 2
-
     call_args = {"query": args.query, "top_k": args.top_k, "memory_type": args.memory_type}
     if args.created_after:
         call_args["created_after"] = args.created_after
 
-    headers = {"Authorization": f"Bearer {token}"}
-    async with streamablehttp_client(URL, headers=headers) as (read, write, _):
+    url, headers, auth = resolve_url_and_auth()
+    async with streamablehttp_client(url, headers=headers, auth=auth) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             res = await session.call_tool("search_memory", arguments=call_args)

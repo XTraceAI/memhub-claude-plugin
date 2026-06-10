@@ -16,56 +16,34 @@ Discipline mirrors the SessionEnd hook: THIS SCRIPT NEVER FAILS LOUDLY —
 any error exits 0 quietly (the hook is async fire-and-forget; memory capture
 must never disturb the user's session).
 
-Auth reuses the memhub-cli token ($MEMHUB_TOKEN -> `memhub token` ->
-`uvx memhub token`). Endpoint: --url > $MEMHUB_MCP_BASE_URL(+_SERVER_PATH) >
-the plugin's .mcp.json mcpServers.*.url > staging default.
+Auth = the SAME OAuth the /mcp connector uses (shared `_memhub_auth`):
+$MEMHUB_TOKEN if set (CI escape hatch), else the cached plugin OAuth token,
+refreshed automatically. interactive=False — a background hook must never
+pop a browser, so with no cached token it degrades quietly (run any memhub
+terminal script once, e.g. /memhub:import-session, to seed the cache).
+Endpoint: $MEMHUB_MCP_BASE_URL(+_SERVER_PATH) > the plugin's .mcp.json
+mcpServers.*.url > staging default.
 """
 from __future__ import annotations
 
 import asyncio
 import json
-import os
-import subprocess
+import logging
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _memhub_auth import NonInteractiveAuthRequired, resolve_url_and_auth  # noqa: E402
+
+# The MCP SDK logs the OAuth flow's exception (with traceback) before it
+# propagates to us; a background hook must stay quiet, so silence that logger
+# — main() still reports the condition in one friendly line.
+logging.getLogger("mcp.client.auth").setLevel(logging.CRITICAL)
 
 
 def _log(msg: str) -> None:
     # Hook stdout is only shown in verbose/error views; keep one-liners.
     print(f"[memhub-flush] {msg}")
-
-
-def default_url() -> str:
-    base = os.environ.get("MEMHUB_MCP_BASE_URL")
-    if base:
-        path = os.environ.get("MEMHUB_MCP_SERVER_PATH", "/mcp-server/mcp")
-        return f"{base.rstrip('/')}{path}"
-    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    cfg = (Path(root) if root else Path(__file__).resolve().parents[1]) / ".mcp.json"
-    try:
-        servers = json.loads(cfg.read_text()).get("mcpServers", {})
-        name = next((k for k in servers if k.lower().startswith("memhub")),
-                    next(iter(servers)) if len(servers) == 1 else None)
-        url = servers.get(name, {}).get("url") if name else None
-        if url:
-            return url
-    except (OSError, json.JSONDecodeError):
-        pass
-    return "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
-
-
-def resolve_token() -> str:
-    token = os.environ.get("MEMHUB_TOKEN", "").strip()
-    if token:
-        return token
-    for cmd in (["memhub", "token"], ["uvx", "memhub", "token"]):
-        try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if out.returncode == 0 and out.stdout.strip():
-                return out.stdout.strip().splitlines()[-1].strip()
-        except Exception:  # noqa: BLE001 — silent-degrade discipline
-            continue
-    return ""
 
 
 async def _flush(session_id: str, transcript_path: str) -> None:
@@ -94,13 +72,8 @@ async def _flush(session_id: str, transcript_path: str) -> None:
         _log("empty transcript; nothing to flush")
         return
 
-    token = resolve_token()
-    if not token:
-        _log("no token (run `memhub login`); skipping flush")
-        return
-
-    headers = {"Authorization": f"Bearer {token}"}
-    async with streamablehttp_client(default_url(), headers=headers) as (r, w, _):
+    url, headers, auth = resolve_url_and_auth(interactive=False)
+    async with streamablehttp_client(url, headers=headers, auth=auth) as (r, w, _):
         async with ClientSession(r, w) as session:
             await session.initialize()
             res = await session.call_tool("import_conversation", arguments={
@@ -139,6 +112,28 @@ async def _flush(session_id: str, transcript_path: str) -> None:
                      f"{(texts[0] if texts else '')[:120]!r}")
 
 
+def _auth_required(e: BaseException) -> bool:
+    """True if NonInteractiveAuthRequired is anywhere in the exception tree.
+
+    The MCP client runs auth inside anyio task groups, so the raise from our
+    redirect_handler can surface wrapped in ExceptionGroups or as a __cause__.
+    """
+    seen: set[int] = set()
+    stack: list[BaseException] = [e]
+    while stack:
+        exc = stack.pop()
+        if id(exc) in seen:
+            continue
+        seen.add(id(exc))
+        if isinstance(exc, NonInteractiveAuthRequired):
+            return True
+        stack.extend(getattr(exc, "exceptions", ()) or ())
+        for link in (exc.__cause__, exc.__context__):
+            if link is not None:
+                stack.append(link)
+    return False
+
+
 def main() -> int:
     try:
         hook_input = json.loads(sys.stdin.read() or "{}")
@@ -151,7 +146,11 @@ def main() -> int:
         _log(f"trigger: {cmd!r}")
         asyncio.run(_flush(session_id, transcript_path))
     except Exception as e:  # noqa: BLE001 — never fail the hook
-        _log(f"skipped ({type(e).__name__}: {e})")
+        if _auth_required(e):
+            _log("no cached OAuth token; run /memhub:import-session once "
+                 "(or set MEMHUB_TOKEN) to enable commit flush — skipping")
+        else:
+            _log(f"skipped ({type(e).__name__}: {e})")
     return 0
 
 

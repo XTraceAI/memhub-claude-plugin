@@ -7,8 +7,9 @@ read a Claude Code .jsonl transcript, pass the raw records AS-IS to the
 source_platform="claude". Then polls `search_memory` to confirm the
 background agentic extraction landed.
 
-Auth: reuses the memhub-cli token (no credential handling here).
-    export MEMHUB_TOKEN="$(cd ../memhub-cli && uv run memhub token)"
+Auth = the SAME OAuth the /mcp connector uses (shared `_memhub_auth`):
+$MEMHUB_TOKEN if set, else the cached plugin OAuth token, else a one-time
+browser approval.
 
 Run (mcp SDK pulled ephemerally by uv):
     uv run --with mcp python scripts/import_session_test.py \
@@ -21,12 +22,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import sys
 from pathlib import Path
 
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "memhub" / "scripts"))
+from _memhub_auth import resolve_url_and_auth  # noqa: E402
 
 STAGING_MCP_URL = "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
 
@@ -76,11 +79,6 @@ async def main() -> int:
     ap.add_argument("--wait", type=int, default=45, help="seconds to wait before verifying")
     args = ap.parse_args()
 
-    token = os.environ.get("MEMHUB_TOKEN", "").strip()
-    if not token:
-        print("ERROR: set MEMHUB_TOKEN (e.g. `export MEMHUB_TOKEN=$(memhub token)`)", file=sys.stderr)
-        return 2
-
     all_records = load_records(args.session)
     if args.max_bytes and args.max_bytes > 0:
         records, payload_bytes = slice_to_bytes(all_records, args.max_bytes)
@@ -97,8 +95,8 @@ async def main() -> int:
     print(f"endpoint           : {args.url}")
     print("-" * 60)
 
-    headers = {"Authorization": f"Bearer {token}"}
-    async with streamablehttp_client(args.url, headers=headers) as (read, write, _):
+    url, headers, auth = resolve_url_and_auth(args.url)
+    async with streamablehttp_client(url, headers=headers, auth=auth) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
 

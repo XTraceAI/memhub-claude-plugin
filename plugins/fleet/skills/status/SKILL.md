@@ -10,12 +10,13 @@ write to the board.
 
 Do exactly this:
 
-1. Read the board and the current time in one command (`--path-format=absolute`
-   matters — the relative form depends on the cwd the command happens to run in):
+1. Read the board, the current time, and this session's worktree in one
+   command (`--path-format=absolute` matters — the relative form depends on
+   the cwd the command happens to run in):
 
    ```bash
    BOARD="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/fleet-board.json"
-   date +%s && cat "$BOARD"
+   date +%s && git rev-parse --path-format=absolute --show-toplevel && cat "$BOARD"
    ```
 
    - Not a git repo, or the file is missing/empty → tell the user there's no
@@ -32,8 +33,14 @@ Do exactly this:
    - worktree path and the first 8 chars of the session id
 
    A short markdown table or tight bullet list — whichever reads better for
-   the number of agents. One agent (just this one) → say the fleet is only
-   this session; no table needed.
+   the number of agents. Mark the entry whose `worktree` equals the toplevel
+   you printed as "(this worktree)" — that is the closest the board gets to
+   identifying the current session; never assume a row is this session by
+   count alone. With exactly one entry: if it matches this worktree, say the
+   fleet is just this session (no table); if it does NOT match, say another
+   agent is active in a different worktree and this session isn't on the
+   board (its fleet hooks haven't fired here — plugin not loaded, or no
+   prompt yet).
 
 3. Close with one summary line, e.g. "3 active across 3 worktrees; last
    commit 12m ago on `fm-fix/oauth-refresh`." If two agents' `last_commit`

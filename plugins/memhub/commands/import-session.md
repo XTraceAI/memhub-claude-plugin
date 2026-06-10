@@ -31,6 +31,12 @@ Do exactly this:
    NOTE: re-imports dedup per conversation_id GLOBALLY — to re-extract an
    already-imported session into a context base, pass a fresh
    `--conversation-id`.
+   Very large transcripts are AUTO-CHUNKED (default threshold ~3.5MB): the
+   script sends disjoint slices sequentially under one conversation_id and
+   waits for each slice's extraction (the session gist folding forward)
+   before the next — payloads beyond ~8MB fail server-side as one shot, so
+   never disable chunking for huge sessions. This is slow but unattended;
+   just let the command run.
    ```
 
 2. Report back the returned `conversation_id`, `path` (should be `"agentic"`

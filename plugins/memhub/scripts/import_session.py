@@ -90,6 +90,62 @@ def resolve_session_file(session: str) -> tuple[Path | None, str]:
     return candidates[0], ""
 
 
+def _slices(records: list[dict], chunk_bytes: int) -> list[list[dict]]:
+    """Split records into consecutive disjoint slices under chunk_bytes each
+    (single oversized records still go through alone). Disjointness matters:
+    each slice is its own incremental import, so no record is ever extracted
+    twice regardless of watermark timing."""
+    out: list[list[dict]] = []
+    cur: list[dict] = []
+    size = 0
+    for rec in records:
+        b = len(json.dumps(rec, separators=(",", ":")))
+        if cur and size + b > chunk_bytes:
+            out.append(cur)
+            cur, size = [], 0
+        cur.append(rec)
+        size += b
+    if cur:
+        out.append(cur)
+    return out
+
+
+async def _gist_hash(session, context_base_id: str | None) -> str | None:
+    """Content hash of the session gist (episode starting '## GOAL'), or None."""
+    import hashlib
+    args = {"query": "GOAL INTENT OUTCOME ROUTE RESUME STATE next step",
+            "memory_type": "episodes", "top_k": 5}
+    if context_base_id:
+        args["context_base_id"] = context_base_id
+    try:
+        res = await session.call_tool("search_memory", arguments=args)
+        d = unwrap(res)
+        for it in d.get("items", []):
+            c = str(it.get("content", "")).lstrip()
+            if c.startswith("## GOAL"):
+                return hashlib.sha256(c.encode()).hexdigest()
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+async def _wait_gist_change(session, context_base_id, prev_hash, timeout=1800):
+    """Block until the gist appears (prev None) or its content changes
+    (fold-forward happened) — the end-of-slice extraction signal. On timeout,
+    warn and proceed (the next slice still imports safely; worst case the
+    gist upserts race and one fold is lost to last-writer-wins)."""
+    import time as _time
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        await asyncio.sleep(20)
+        h = await _gist_hash(session, context_base_id)
+        if h is not None and h != prev_hash:
+            print("  slice extraction complete (gist updated)")
+            return h
+    print("  WARNING: slice wait timed out; continuing with next slice")
+    return prev_hash
+
+
 def unwrap(result) -> dict:
     if getattr(result, "structuredContent", None):
         return result.structuredContent
@@ -114,6 +170,15 @@ async def main() -> int:
                     help="route the extracted facts/episodes into a context base "
                          "(isolated, shareable) instead of raw workspace memory")
     ap.add_argument("--url", default=None)
+    ap.add_argument("--chunk-bytes", type=int, default=3_500_000,
+                    help="transcripts larger than this are sent as sequential "
+                         "disjoint slices under the same conversation_id "
+                         "(server extracts each incrementally; the session "
+                         "gist folds forward per slice). 0 disables chunking.")
+    ap.add_argument("--slice-timeout", type=int, default=1800,
+                    help="max seconds to wait for a slice's extraction "
+                         "(detected via the session gist appearing/changing) "
+                         "before sending the next slice anyway")
     args = ap.parse_args()
 
     f, err = resolve_session_file(args.session)
@@ -134,6 +199,8 @@ async def main() -> int:
 
     conv_id = args.conversation_id or f.stem
     url, headers, auth = resolve_url_and_auth(args.url)
+
+    slices = _slices(records, args.chunk_bytes) if args.chunk_bytes else [records]
     size = f.stat().st_size
     print(f"session file    : {f}")
     print(f"records         : {len(records)}   ({size:,} bytes ≈ {size // 4:,} tokens)")
@@ -143,21 +210,37 @@ async def main() -> int:
         print(f"context base    : {args.context_base_id}")
     print("-" * 56)
 
-    call_args: dict = {
-        "messages": records,
-        "conversation_id": conv_id,
-        "source_platform": "claude",
-    }
-    if args.title:
-        call_args["title"] = args.title
-    if args.context_base_id:
-        call_args["context_base_id"] = args.context_base_id
+    if len(slices) > 1:
+        print(f"chunked import : {len(slices)} slices "
+              f"(payload exceeds {args.chunk_bytes:,} bytes; slices are "
+              "disjoint and sent sequentially — the gist folds forward "
+              "after each)")
 
     async with streamablehttp_client(url, headers=headers, auth=auth) as (r, w, _):
         async with ClientSession(r, w) as s:
             await s.initialize()
-            res = await s.call_tool("import_conversation", arguments=call_args)
-            print(json.dumps(unwrap(res), indent=2))
+            prev_gist_hash = await _gist_hash(s, args.context_base_id)
+            for i, sl in enumerate(slices, 1):
+                call_args: dict = {
+                    "messages": sl,
+                    "conversation_id": conv_id,
+                    "source_platform": "claude",
+                }
+                if args.title:
+                    call_args["title"] = args.title
+                if args.context_base_id:
+                    call_args["context_base_id"] = args.context_base_id
+                if len(slices) > 1:
+                    print(f"--- slice {i}/{len(slices)}: {len(sl)} records ---")
+                res = await s.call_tool("import_conversation", arguments=call_args)
+                print(json.dumps(unwrap(res), indent=2))
+                if i < len(slices):
+                    print(f"waiting for slice {i} extraction "
+                          "(gist appear/fold-forward) before next slice ...")
+                    prev_gist_hash = await _wait_gist_change(
+                        s, args.context_base_id, prev_gist_hash,
+                        timeout=args.slice_timeout,
+                    )
     print("-" * 56)
     print("Queued. Extraction runs in the background (minutes for large "
           "sessions); facts/episodes/artifacts + the session gist appear in "

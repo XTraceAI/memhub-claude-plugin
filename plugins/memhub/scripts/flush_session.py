@@ -145,7 +145,12 @@ def main() -> int:
         cmd = str((hook_input.get("tool_input") or {}).get("command", ""))[:120]
         _log(f"trigger: {cmd!r}")
         asyncio.run(_flush(session_id, transcript_path))
-    except Exception as e:  # noqa: BLE001 — never fail the hook
+    # BaseException, not Exception: when anyio's task group mixes a
+    # CancelledError into the group (e.g. the auth failure cancelling sibling
+    # tasks), the result is a BaseExceptionGroup — a BaseException — which
+    # would skip an Exception handler and kill the hook with a traceback.
+    # This is a fire-and-forget background hook: exit 0 quietly, always.
+    except BaseException as e:  # noqa: BLE001 — never fail the hook
         if _auth_required(e):
             _log("no cached OAuth token; run /memhub:import-session once "
                  "(or set MEMHUB_TOKEN) to enable commit flush — skipping")

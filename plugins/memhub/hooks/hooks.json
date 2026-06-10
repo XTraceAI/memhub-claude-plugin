@@ -1,5 +1,19 @@
 {
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "timeout": 300,
+            "statusMessage": "MemHub: flushing session memory",
+            "command": "IN=$(cat); case \"$IN\" in *\"git commit\"*|*\"gh pr create\"*|*\"gh pr merge\"*) printf %s \"$IN\" | uv run --with mcp python \"${CLAUDE_PLUGIN_ROOT}/scripts/flush_session.py\" ;; esac"
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "hooks": [

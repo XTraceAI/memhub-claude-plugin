@@ -45,6 +45,30 @@ Select `memhub-staging`, choose **Authenticate**, and approve in the browser.
 4. Re-running the same session dedups (the `conversation_id` keys a deterministic
    re-import), so nothing is double-saved.
 
+## Incremental flush on commit / PR (v0.2)
+
+Besides the SessionEnd backstop, a `PostToolUse` hook watches for `git commit`,
+`gh pr create`, and `gh pr merge` and flushes the transcript-so-far in the
+background (async — never blocks your session). Commits are semantic work
+boundaries: flushing there makes memory available **mid-session** (parallel
+sessions see fresh decisions minutes after each commit), shapes episodes into
+work-unit narratives, and survives sessions that never end cleanly. All
+triggers share one `conversation_id` (= `session_id`) and one server-side
+watermark, so the full transcript is re-sent but only the **delta** is ever
+processed — total extraction cost is the same as a single end-of-session
+import.
+
+**Extra prerequisite for the flush hook:** it authenticates with the
+`memhub` CLI token (the async hook can't reuse the session's MCP OAuth), so
+run once:
+
+```bash
+uvx memhub login
+```
+
+Without it the hook degrades silently (the SessionEnd agent hook still
+captures everything at close).
+
 ## Notes & trade-offs
 
 - **Auth is per-user.** Nothing secret travels with the plugin — each person

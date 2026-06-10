@@ -17,14 +17,35 @@ import json
 import re
 import sys
 
-# A new shell segment (start, or after ; & | parens) beginning with `git`,
-# then up to a few non-separator tokens (flags like -C <path>, -c k=v,
-# --git-dir=x), then `commit`. Segment-bounded tokens ([^\s;&|()]+) stop the
-# match from crossing pipes — `git log --oneline | grep commit` won't fire.
+# One non-separator character — every token below is segment-bounded so no
+# pattern can cross a pipe: `git log --oneline | grep commit` won't fire.
+_TOK = r"[^\s;&|()]"
+# Tokens that may legitimately precede the command word INSIDE one segment:
+# env-var assignments (`GIT_EDITOR=true git commit`) and wrapper commands
+# that exec their argument (`env VAR=1 git ...`, `nohup git ...`,
+# `timeout 60 git ...`, `sudo -E git ...`). Each wrapper may carry flag /
+# duration / assignment tokens. Anything else before `git` (e.g. `echo`)
+# still blocks the match, keeping `echo git commit` silent.
+# Assignment values: a balanced quoted string is consumed WHOLE, so a value
+# that merely mentions the phrase (`MSG="please git commit" ls`) cannot leak
+# a bare `git` into match position — and `GIT_EDITOR="true" git commit`
+# still works because the quoted value is swallowed before `git` is read.
+# The (?!["']) lookahead is load-bearing: without it the regex engine
+# backtracks into the unquoted branch and consumes `MSG="please` as a value,
+# leaking the quoted string's interior (`git commit ...`) into match
+# position. Quote-opened values MUST take the balanced-quote branch.
+_ASSIGN = rf"""[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|(?!["']){_TOK}*)"""
+_WRAPPER = r"(?:env|nohup|command|exec|time|timeout|sudo|nice|stdbuf|caffeinate)"
+_PREFIX = rf"(?:(?:{_ASSIGN}|{_WRAPPER})\s+(?:(?:-{_TOK}*|\d+{_TOK}*|{_ASSIGN})\s+)*)*"
+# A new shell segment (start, or after ; & | parens), optional assignment /
+# wrapper prefixes, then `git`, then up to a few non-separator tokens (flags
+# like -C <path>, -c k=v, --git-dir=x), then `commit`.
 _GIT_COMMIT = re.compile(
-    r"(?:^|[;&|()]\s*)git(?:\s+[^\s;&|()]+){0,4}?\s+commit\b"
+    rf"(?:^|[;&|()]\s*){_PREFIX}git(?:\s+{_TOK}+){{0,4}}?\s+commit\b"
 )
-_GH_PR = re.compile(r"(?:^|[;&|()]\s*)gh\s+pr\s+(?:create|merge)\b")
+_GH_PR = re.compile(
+    rf"(?:^|[;&|()]\s*){_PREFIX}gh\s+pr\s+(?:create|merge)\b"
+)
 
 
 def should_flush(command: str) -> bool:

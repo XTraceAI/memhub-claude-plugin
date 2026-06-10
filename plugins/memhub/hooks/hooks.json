@@ -9,7 +9,7 @@
             "async": true,
             "timeout": 300,
             "statusMessage": "MemHub: flushing session memory",
-            "command": "IN=$(cat); case \"$IN\" in *git*commit*|*\"gh pr\"*) if printf %s \"$IN\" | python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/flush_prefilter.py\"; then printf %s \"$IN\" | uv run --with mcp python \"${CLAUDE_PLUGIN_ROOT}/scripts/flush_session.py\"; fi ;; esac"
+            "command": "IN=$(cat); case \"$IN\" in *git*commit*|*\"gh pr\"*) if [ -z \"${CLAUDE_PLUGIN_ROOT:-}\" ]; then echo \"[memhub-flush] CLAUDE_PLUGIN_ROOT unset; cannot locate flush scripts, skipping\" >&2; elif printf %s \"$IN\" | python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/flush_prefilter.py\"; then printf %s \"$IN\" | uv run --with mcp python \"${CLAUDE_PLUGIN_ROOT}/scripts/flush_session.py\"; fi ;; esac"
           }
         ]
       }

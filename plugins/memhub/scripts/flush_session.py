@@ -96,18 +96,35 @@ async def _flush(session_id: str, transcript_path: str) -> None:
                 "conversation_id": session_id,
                 "source_platform": "claude",
             })
-            for block in getattr(res, "content", []) or []:
-                text = getattr(block, "text", None)
-                if text:
+            texts = [t for t in (getattr(b, "text", None)
+                                 for b in getattr(res, "content", []) or []) if t]
+            # MCP signals tool failure via isError + a message in content,
+            # NOT via an exception — without this check a bad token or
+            # server error logs as success while memory never updates.
+            if getattr(res, "isError", False):
+                _log(f"flush FAILED: {(texts[0] if texts else 'no detail')[:200]}")
+                return
+            out = getattr(res, "structuredContent", None)
+            if isinstance(out, dict) and "conversation_id" not in out \
+                    and isinstance(out.get("result"), dict):
+                out = out["result"]  # FastMCP wraps some returns in {"result": …}
+            if not isinstance(out, dict):
+                for text in texts:
                     try:
                         out = json.loads(text)
-                        _log(f"flushed {out.get('messages_received')} records "
-                             f"(conv {str(out.get('conversation_id'))[:8]}, "
-                             f"path={out.get('path')}) — server processes the delta")
+                        break
                     except json.JSONDecodeError:
-                        _log("flush accepted")
-                    return
-            _log("flush sent")
+                        continue
+            if isinstance(out, dict) and "conversation_id" in out:
+                _log(f"flushed {out.get('messages_received')} records "
+                     f"(conv {str(out.get('conversation_id'))[:8]}, "
+                     f"path={out.get('path')}) — server processes the delta")
+            else:
+                # Not an error per the protocol, but not the shape
+                # import_conversation returns either — log what came back
+                # instead of claiming success on an arbitrary body.
+                _log("flush response unrecognized: "
+                     f"{(texts[0] if texts else '')[:120]!r}")
 
 
 def main() -> int:

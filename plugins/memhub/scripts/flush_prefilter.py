@@ -47,11 +47,16 @@ _PREFIX = rf"(?:(?:{_ASSIGN}|{_WRAPPER})\s+(?:(?:-{_TOK}*|\d+{_TOK}*|{_ASSIGN})\
 # from firing: a bare non-flag token between `git` and `commit` blocks the
 # match. The flag ARGUMENT must not start with `-` so runs of standalone
 # flags parse unambiguously instead of pairing up via backtracking.
+# The subcommand must end its TOKEN, not just a regex word (`\b` holds
+# between `commit` and `-msg`, so `git commit-tree` / `git commit-msg`
+# would fire on a \b boundary). End-of-token = end of string or a
+# whitespace/separator character.
+_EOT = rf"(?!{_TOK})"
 _GIT_COMMIT = re.compile(
-    rf"(?:^|[;&|()]\s*){_PREFIX}git(?:\s+-{_TOK}*(?:\s+(?!-){_TOK}+)?)*?\s+commit\b"
+    rf"(?:^|[;&|()]\s*){_PREFIX}git(?:\s+-{_TOK}*(?:\s+(?!-){_TOK}+)?)*?\s+commit{_EOT}"
 )
 _GH_PR = re.compile(
-    rf"(?:^|[;&|()]\s*){_PREFIX}gh\s+pr\s+(?:create|merge)\b"
+    rf"(?:^|[;&|()]\s*){_PREFIX}gh\s+pr\s+(?:create|merge){_EOT}"
 )
 
 

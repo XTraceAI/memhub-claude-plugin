@@ -51,6 +51,7 @@ silent '{"tool_input":{"command":"git log --oneline | grep commit"}}' "cross-pip
 silent '{"tool_input":{"command":"echo git commit"}}' "echoed mention"
 silent '{"tool_input":{"command":"MSG=\"please git commit\" ls"}}' "mention inside assignment value"
 silent '{"tool_input":{"command":"git diff main commit"}}' "commit as ref word after non-flag"
+silent '{"tool_input":{"command":"git commit-tree abc123 -m x"}}' "commit-prefixed subcommand"
 
 # Unset CLAUDE_PLUGIN_ROOT must fail LOUDLY (a log line), not collapse to
 # /scripts/… and die silently.

@@ -72,12 +72,24 @@ async def _flush(session_id: str, transcript_path: str) -> None:
     from mcp.client.session import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
+    # Tolerant parse, NOT json.loads-or-die: this hook reads the transcript
+    # while Claude Code is still appending to it, so a truncated final line
+    # is the EXPECTED case here, not corruption. One partial line must not
+    # silently kill the whole flush (the outer except would eat it) — skip
+    # it; the next flush's watermark pass picks the record up once complete.
     records = []
+    malformed = 0
     with open(transcript_path) as fh:
         for line in fh:
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 records.append(json.loads(line))
+            except json.JSONDecodeError:
+                malformed += 1
+    if malformed:
+        _log(f"skipped {malformed} partial/malformed line(s) (mid-write read)")
     if not records:
         _log("empty transcript; nothing to flush")
         return

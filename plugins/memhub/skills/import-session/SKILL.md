@@ -17,8 +17,9 @@ Arguments: `$ARGUMENTS`
 - Remaining text = an optional conversation title.
 - If invoked without arguments (e.g. the user said "import this session"), ask
   which session they mean — or, for "this/the current session", use the most
-  recently modified `.jsonl` under the `~/.claude/projects/` directory matching
-  the current working directory.
+  recently modified `.jsonl` sitting DIRECTLY inside the `~/.claude/projects/`
+  directory matching the current working directory (top level only — `.jsonl`
+  files in subdirectories are subagent/workflow transcripts, not sessions).
 
 Do exactly this:
 

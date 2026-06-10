@@ -21,6 +21,7 @@ Self-check:  uv run --with mcp python _memhub_auth.py
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import os
 import threading
@@ -182,6 +183,11 @@ def _make_callback_handler(port: int):
                 server = HTTPServer(("localhost", port), _Handler)
                 break
             except OSError as e:
+                # Retry ONLY "address in use" — a live listener that may
+                # release the port. Permission/interface errors won't heal
+                # with waiting; surface them immediately, undisguised.
+                if e.errno != errno.EADDRINUSE:
+                    raise
                 if time.monotonic() >= bind_deadline:
                     raise RuntimeError(
                         f"OAuth callback port {port} is busy — another memhub "
@@ -193,8 +199,15 @@ def _make_callback_handler(port: int):
         server.timeout = 1  # let handle_request tick so the loop can exit
 
         def serve():
-            while not done.is_set():
-                server.handle_request()
+            # server_close() in the finally below can race a handle_request
+            # that's mid-poll on the listening socket; swallow the resulting
+            # OSError so the user sees ONE clean error, not a daemon-thread
+            # traceback interleaved with it.
+            try:
+                while not done.is_set():
+                    server.handle_request()
+            except OSError:
+                pass
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()

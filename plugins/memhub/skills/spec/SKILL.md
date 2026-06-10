@@ -24,6 +24,10 @@ Run spec-driven development on top of MemHub. The model:
 - The spec also lives **in the repo as a file** (default
   `docs/specs/<slug>.md`). The file is what implementers read in their
   worktree; the artifact is the shared truth. `check` compares the two.
+  Because `init` accepts any existing file as the spec, the file's
+  repo-relative path is recorded on the artifact as a **`path:<repo-relative-path>`
+  tag** — that tag, not the default location, is how later sessions find the
+  file again.
 - Sharing is **read-only**: teammates can search/check/status the room, but
   uploads into it work only for its creator. The intended flow: the spec
   owner runs `init`/`revise`; read-only members propose changes by editing
@@ -35,7 +39,7 @@ File uploads ALWAYS go through the helper script (never call the
 ```bash
 uv run --with mcp python "${CLAUDE_PLUGIN_ROOT}/scripts/save_artifact.py" \
   --file "<path>" --name "Spec: <title>" --type spec \
-  --context-base-id "<repo-cb-id>" --tags "spec,spec:<slug>" \
+  --context-base-id "<repo-cb-id>" --tags "spec,spec:<slug>,path:<repo-relative-path>" \
   [--parent-id "<latest-version-id>"] [--rationale "<why>"]
 ```
 
@@ -71,7 +75,9 @@ base to use.
    uploading without a parent would create a second root artifact and break
    check/revise diffs. Any `for <teammates>` sharing still applies (step 5).
 4. Upload the file with the script (no `--parent-id` — this is the first
-   version of a fresh lineage).
+   version of a fresh lineage). `path:` in `--tags` is the spec file's path
+   relative to the repo root — the path the user gave, or the
+   `docs/specs/<slug>.md` you wrote; never an absolute path.
 5. If the user named teammates ("for Alice and Bob"), resolve each via
    `list_teammates` (case-insensitive; ambiguous → show candidates and ask,
    never guess between two people) and `share_context_base` with each
@@ -92,12 +98,15 @@ base to use.
    `tags: ["spec"]` plus a query for the topic. Several candidates → ask.
 2. `get_artifact_lineage` on it; the NEWEST version's id is the
    `--parent-id`.
-3. The revised content is the repo file (default: the file `init` wrote; or
-   the path given). If the change was discussed but not yet applied, edit the
-   file first. A rationale is REQUIRED — take it from the arguments or the
-   conversation; if you can't state why this version supersedes the last, ask.
+3. The revised content is the repo file — the path given as the argument,
+   else the artifact's `path:` tag, else `docs/specs/<slug>.md`. If the
+   change was discussed but not yet applied, edit the file first. A rationale
+   is REQUIRED — take it from the arguments or the conversation; if you can't
+   state why this version supersedes the last, ask.
 4. Upload with the script (`--parent-id`, `--rationale`, same `--name` and
-   tags as before).
+   tags as before — except `path:`, which must reflect the file's current
+   repo-relative path: update it if the file moved, add it if the lineage
+   predates path tags).
 5. `diff_artifact_versions` (previous → new) and report the delta in plain
    English plus the rationale. Remind the user that teammates' agents see the
    new version on their next `check` — there is no push notification.
@@ -113,8 +122,11 @@ Answer: "is the spec I'm building against still the spec?"
 
 1. Resolve the room and the spec (as in revise), `get_artifact` the latest
    version.
-2. Find the local spec file (argument, `docs/specs/<slug>.md`, or the file
-   from earlier in this session). Compare contents:
+2. Find the local spec file — first existing match wins: the argument; the
+   artifact's `path:` tag; `docs/specs/<slug>.md`; the file from earlier in
+   this session. A candidate missing on disk just falls through to the next
+   (only an explicit argument that doesn't exist is an error worth raising).
+   Compare contents:
    - identical → in sync; say so, one line, done.
    - local matches an OLDER version in the lineage (walk `get_artifact_lineage`,
      compare against each) → the spec moved underneath: report every newer
@@ -126,7 +138,8 @@ Answer: "is the spec I'm building against still the spec?"
      overwriting the file with the latest artifact content (if the team
      version should win). Never overwrite without asking.
 3. No local file at all → print the latest version's content summary,
-   rationale chain, and where to write the file.
+   rationale chain, and where to write the file (the `path:` tag's location,
+   else `docs/specs/<slug>.md`).
 
 ## status `[topic]`
 

@@ -40,8 +40,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _memhub_auth import resolve_url_and_auth  # noqa: E402
 
 
-def resolve_session_file(session: str) -> Path | None:
+def resolve_session_file(session: str) -> tuple[Path | None, str]:
     """Accept a path, or a bare session id searched under ~/.claude/projects.
+
+    Returns ``(file, error_reason)`` — exactly one is set. A PATH-shaped
+    argument (contains a separator) that doesn't exist is its own error;
+    it must NOT fall through to the id glob, which would blame the
+    projects-dir lookup for a plain file typo.
 
     Top-level session transcripts only — subagent/workflow .jsonl files live
     in subdirectories and are not sessions. If the same session id exists
@@ -50,14 +55,19 @@ def resolve_session_file(session: str) -> Path | None:
     """
     p = Path(session).expanduser()
     if p.is_file():
-        return p
+        return p, ""
+    if "/" in session:
+        return None, f"transcript file not found: {p}"
     sid = session.removesuffix(".jsonl")
     candidates = sorted(
         Path.home().glob(f".claude/projects/*/{sid}.jsonl"),
         key=lambda f: f.stat().st_size,
         reverse=True,
     )
-    return candidates[0] if candidates else None
+    if not candidates:
+        return None, (f"no session {sid!r} found under ~/.claude/projects/*/ "
+                      "(pass a transcript path instead?)")
+    return candidates[0], ""
 
 
 def unwrap(result) -> dict:
@@ -86,10 +96,9 @@ async def main() -> int:
     ap.add_argument("--url", default=None)
     args = ap.parse_args()
 
-    f = resolve_session_file(args.session)
+    f, err = resolve_session_file(args.session)
     if f is None:
-        print(f"ERROR: no transcript found for {args.session!r} "
-              f"(looked under ~/.claude/projects/*/)", file=sys.stderr)
+        print(f"ERROR: {err}", file=sys.stderr)
         return 2
 
     records = [json.loads(l) for l in f.read_text().splitlines() if l.strip()]

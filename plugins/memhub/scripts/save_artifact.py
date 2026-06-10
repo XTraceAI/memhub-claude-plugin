@@ -65,6 +65,9 @@ async def main() -> int:
     ap.add_argument("--url", default=None)
     args = ap.parse_args()
 
+    if not args.stdin and not args.file.is_file():
+        print(f"ERROR: file not found: {args.file}", file=sys.stderr)
+        return 2
     content = sys.stdin.read() if args.stdin else args.file.read_text()
     if not content.strip():
         print("ERROR: artifact body is empty", file=sys.stderr)

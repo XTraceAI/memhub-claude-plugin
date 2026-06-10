@@ -1,7 +1,7 @@
 {
   "name": "memhub",
-  "description": "Auto-capture Claude Code sessions into MemHub team memory. Incremental flushes on commit/PR events (PostToolUse hooks) plus a SessionEnd backstop read the transcript and save it via the memhub-staging MCP, which runs tool-aware (agentic) extraction of facts, episodes, and artifacts with watermark-based delta dedup. Ships skills for terminal artifact uploads (save-artifact), on-demand session import (import-session), team-memory recall (search-memory), and teammate session handoff (handoff-session).",
-  "version": "0.5.0",
+  "description": "Auto-capture Claude Code sessions into MemHub team memory. Incremental flushes on commit/PR events (PostToolUse hooks) plus a SessionEnd backstop read the transcript and save it via the memhub-staging MCP, which runs tool-aware (agentic) extraction of facts, episodes, and artifacts with watermark-based delta dedup. Ships skills for terminal artifact uploads (save-artifact), on-demand session import (import-session), team-memory recall (search-memory), teammate session handoff (handoff-session), and spec-driven development on versioned spec artifacts (spec).",
+  "version": "0.6.0",
   "author": {
     "name": "XTrace",
     "email": "felixmeng@xtrace.ai"

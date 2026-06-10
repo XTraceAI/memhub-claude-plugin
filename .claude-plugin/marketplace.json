@@ -10,6 +10,11 @@
       "name": "memhub",
       "source": "./plugins/memhub",
       "description": "Auto-capture Claude Code sessions into MemHub team memory at session end."
+    },
+    {
+      "name": "fleet",
+      "source": "./plugins/fleet",
+      "description": "Live awareness across parallel Claude Code agents in git worktrees of the same repo — a shared board file plus hooks keep every agent informed of what its siblings are working on."
     }
   ]
 }

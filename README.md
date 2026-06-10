@@ -7,10 +7,10 @@ facts, episodes, and artifacts.
 
 ## What's in here
 
-This repo is both a **marketplace** and a single **plugin**:
+This repo is a **marketplace** with two plugins:
 
 ```
-.claude-plugin/marketplace.json     # makes the plugin installable
+.claude-plugin/marketplace.json     # makes the plugins installable
 plugins/memhub/
 ├── .claude-plugin/plugin.json      # plugin manifest
 ├── .mcp.json                       # the memhub-staging MCP server (per-user OAuth)
@@ -19,6 +19,10 @@ plugins/memhub/
     ├── import-session/             # import a past session, any size
     ├── save-artifact/              # store a file as a MemHub artifact
     └── search-memory/              # read-only team-memory recall
+plugins/fleet/
+├── .claude-plugin/plugin.json      # plugin manifest
+├── hooks/hooks.json                # SessionStart/UserPromptSubmit/PostToolUse/SessionEnd
+└── scripts/fleet_board.py          # one script, one subcommand per hook event
 ```
 
 ## Install
@@ -83,6 +87,33 @@ format is gone; invocation is unchanged). Each is both user-invocable as
   transcript content token by token — a helper script ships the bytes.
 - `/memhub:search-memory <query>` — read-only recall over facts, episodes,
   artifacts, and documents, with context-base / tag / time filters.
+
+## Fleet plugin (v0.1)
+
+`plugins/fleet/` is a separate, local-only plugin for running **many Claude
+Code agents in parallel git worktrees of one repo**. All worktrees share the
+repo's common `.git` directory, so a single board file at
+`$(git rev-parse --git-common-dir)/fleet-board.json` is visible to every
+agent with no server and no auth. Hooks keep it current:
+
+- **SessionStart** — registers the session (branch, worktree, session id),
+  prunes stale/ghost entries, and injects a snapshot of the other active
+  agents into context.
+- **UserPromptSubmit** — heartbeats the entry, refreshes its one-line
+  "working on" from your prompt, and injects only the *delta* of sibling
+  changes since this agent last looked (joined / ended / committed /
+  changed focus). No changes → no injection, no token cost.
+- **PostToolUse** (git commits) — records the commit message and files
+  touched on this agent's entry, so siblings get collision warnings before
+  editing the same files.
+- **SessionEnd** — marks the entry ended (siblings see it; pruned later).
+
+Pairs with the memhub plugin: the board says *who is doing what right now*
+(seconds, one line each); the flush hook already lands every session's
+history in MemHub, so an agent that needs the *why* behind a sibling's
+change searches team memory with the session id from the board entry.
+Each board entry costs ~1 short line of injected context; everything fails
+soft (not a git repo / hook error → silent no-op).
 
 ## Notes & trade-offs
 

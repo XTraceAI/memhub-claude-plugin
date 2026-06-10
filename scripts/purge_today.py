@@ -5,38 +5,21 @@ Dry-run by default: lists facts/episodes/artifacts captured >= --since in the
 caller's workspace, deduped by id. With --execute it deletes them via the
 delete_fact / delete_episode / delete_artifact MCP tools.
 
-    export MEMHUB_TOKEN="$(cd ../memhub-cli && uv run memhub token)"
+Auth = the SAME OAuth the /mcp connector uses (shared `_memhub_auth`):
+$MEMHUB_TOKEN if set, else the cached plugin OAuth token, else a one-time
+browser approval.
+
     uv run --with mcp python scripts/purge_today.py --since 2026-06-09           # dry-run
     uv run --with mcp python scripts/purge_today.py --since 2026-06-09 --execute # delete
 """
 from __future__ import annotations
-import argparse, asyncio, json, os, subprocess, sys
+import argparse, asyncio, json, sys
 from pathlib import Path
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-URL = "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
-MEMHUB_CLI_DIR = Path(__file__).resolve().parents[2] / "memhub-cli"
-
-
-def resolve_token() -> str:
-    token = os.environ.get("MEMHUB_TOKEN", "").strip()
-    if token:
-        return token
-    # Fall back to the memhub-cli cached login (same token `memhub token` prints).
-    for cmd, cwd in (
-        (["memhub", "token"], None),
-        (["uv", "run", "memhub", "token"], str(MEMHUB_CLI_DIR)),
-    ):
-        try:
-            out = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=120)
-            if out.returncode == 0 and out.stdout.strip():
-                return out.stdout.strip().splitlines()[-1].strip()
-        except FileNotFoundError:
-            continue
-        except Exception as e:  # noqa: BLE001
-            print(f"`{' '.join(cmd)}` failed: {e}", file=sys.stderr)
-    return ""
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "memhub" / "scripts"))
+from _memhub_auth import resolve_url_and_auth  # noqa: E402
 
 # Broad, diverse queries to surface today's items across both test imports.
 QUERIES = [
@@ -73,12 +56,8 @@ async def main() -> int:
     ap.add_argument("--keep-name", action="append", default=[],
                     help="skip artifacts whose content/name contains this substring")
     args = ap.parse_args()
-    token = resolve_token()
-    if not token:
-        print("ERROR: no token (set MEMHUB_TOKEN or `memhub login`)", file=sys.stderr); return 2
-
-    headers = {"Authorization": f"Bearer {token}"}
-    async with streamablehttp_client(URL, headers=headers) as (r, w, _):
+    url, headers, auth = resolve_url_and_auth()
+    async with streamablehttp_client(url, headers=headers, auth=auth) as (r, w, _):
         async with ClientSession(r, w) as s:
             await s.initialize()
             # enumerate

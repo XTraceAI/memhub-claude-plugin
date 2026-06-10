@@ -101,27 +101,6 @@ class _FileTokenStorage(TokenStorage):
         return None  # static public client — nothing to persist
 
 
-class _CallbackHandler(BaseHTTPRequestHandler):
-    result: dict = {}
-
-    def do_GET(self):  # noqa: N802
-        q = parse_qs(urlparse(self.path).query)
-        _CallbackHandler.result = {
-            "code": q.get("code", [None])[0],
-            "state": q.get("state", [None])[0],
-        }
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html")
-        self.end_headers()
-        self.wfile.write(
-            b"<html><body><h3>MemHub plugin authenticated."
-            b" You can close this tab.</h3></body></html>"
-        )
-
-    def log_message(self, *args):  # silence request logging
-        return
-
-
 def build_oauth(url: str) -> OAuthClientProvider:
     cfg = _plugin_mcp_config()
     oauth_cfg = cfg.get("oauth", {})
@@ -131,30 +110,9 @@ def build_oauth(url: str) -> OAuthClientProvider:
         raise RuntimeError(".mcp.json has no oauth.clientId")
     redirect_uri = f"http://localhost:{port}/callback"
 
-    done = threading.Event()
-
     async def redirect_handler(auth_url: str) -> None:
         print(f"Opening browser to authenticate (same flow as /mcp)...\n  {auth_url}")
         webbrowser.open(auth_url)
-
-    async def callback_handler() -> tuple[str, str | None]:
-        server = HTTPServer(("localhost", port), _CallbackHandler)
-
-        def serve():
-            while not _CallbackHandler.result:
-                server.handle_request()
-            done.set()
-
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        # Wait for the browser round-trip without blocking the event loop.
-        while not done.is_set():
-            await asyncio.sleep(0.2)
-        server.server_close()
-        res = _CallbackHandler.result
-        if not res.get("code"):
-            raise RuntimeError("OAuth callback carried no authorization code")
-        return res["code"], res.get("state")
 
     return OAuthClientProvider(
         server_url=url,
@@ -167,8 +125,71 @@ def build_oauth(url: str) -> OAuthClientProvider:
         ),
         storage=_FileTokenStorage(url, client_id, redirect_uri),
         redirect_handler=redirect_handler,
-        callback_handler=callback_handler,
+        callback_handler=_make_callback_handler(port),
     )
+
+
+def _make_callback_handler(port: int):
+    """Factory for the localhost OAuth-redirect waiter (module-level so tests
+    can exercise it directly). Each returned coroutine uses ONLY per-call
+    state — a second OAuth round in the same process waits for ITS redirect,
+    never replaying a stale code."""
+
+    async def callback_handler() -> tuple[str, str | None]:
+        result: dict = {}
+        done = threading.Event()
+
+        class _Handler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                q = parse_qs(urlparse(self.path).query)
+                code = q.get("code", [None])[0]
+                error = q.get("error", [None])[0]
+                if code is None and error is None:
+                    # favicon / browser prefetch / stray probe — NOT the
+                    # OAuth redirect; keep waiting.
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                result["code"] = code
+                result["state"] = q.get("state", [None])[0]
+                result["error"] = error
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(
+                    b"<html><body><h3>MemHub plugin authenticated."
+                    b" You can close this tab.</h3></body></html>"
+                    if code else
+                    b"<html><body><h3>Authentication failed - see terminal."
+                    b"</h3></body></html>"
+                )
+                done.set()
+
+            def log_message(self, *args):
+                return
+
+        server = HTTPServer(("localhost", port), _Handler)
+        server.timeout = 1  # let handle_request tick so the loop can exit
+
+        def serve():
+            while not done.is_set():
+                server.handle_request()
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        # Wait for the browser round-trip without blocking the event loop.
+        while not done.is_set():
+            await asyncio.sleep(0.2)
+        server.server_close()
+        if result.get("error"):
+            raise RuntimeError(
+                f"authorization server returned error: {result['error']}"
+            )
+        if not result.get("code"):
+            raise RuntimeError("OAuth callback carried no authorization code")
+        return result["code"], result.get("state")
+
+    return callback_handler
 
 
 def resolve_url_and_auth(url: str | None = None):

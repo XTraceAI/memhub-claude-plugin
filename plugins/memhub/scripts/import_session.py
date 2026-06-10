@@ -40,6 +40,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _memhub_auth import resolve_url_and_auth  # noqa: E402
 
 
+def load_transcript(path: Path) -> tuple[list[dict], int]:
+    """Parse a JSONL transcript tolerantly.
+
+    Returns ``(records, malformed_count)`` — malformed lines are skipped, not
+    fatal, because real transcripts occasionally carry a truncated final line
+    (interrupted write). The caller decides what to do when nothing parses.
+    """
+    records: list[dict] = []
+    malformed = 0
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            malformed += 1
+    return records, malformed
+
+
 def resolve_session_file(session: str) -> tuple[Path | None, str]:
     """Accept a path, or a bare session id searched under ~/.claude/projects.
 
@@ -101,9 +121,15 @@ async def main() -> int:
         print(f"ERROR: {err}", file=sys.stderr)
         return 2
 
-    records = [json.loads(l) for l in f.read_text().splitlines() if l.strip()]
+    records, malformed = load_transcript(f)
+    if malformed:
+        # Transcripts can carry a truncated final line (interrupted write) or
+        # stray non-JSON noise; one bad line must not abort a 2,000-record
+        # import. Skip-and-report, fail only if NOTHING is parseable.
+        print(f"WARNING: skipped {malformed} malformed JSONL line(s) in {f}",
+              file=sys.stderr)
     if not records:
-        print(f"ERROR: {f} is empty", file=sys.stderr)
+        print(f"ERROR: {f} contains no valid JSONL records", file=sys.stderr)
         return 2
 
     conv_id = args.conversation_id or f.stem

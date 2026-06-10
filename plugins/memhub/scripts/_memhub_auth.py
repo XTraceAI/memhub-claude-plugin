@@ -24,6 +24,7 @@ import asyncio
 import json
 import os
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -168,7 +169,27 @@ def _make_callback_handler(port: int):
             def log_message(self, *args):
                 return
 
-        server = HTTPServer(("localhost", port), _Handler)
+        # The callback port is FIXED (it's part of the pre-registered OAuth
+        # client's redirect URI), so on "address already in use" we cannot
+        # fall back to another port — we wait for the holder (a parallel
+        # script run or an in-flight /mcp authentication) to release it,
+        # then fail with guidance instead of a raw OSError traceback.
+        bind_deadline = time.monotonic() + float(
+            os.environ.get("MEMHUB_OAUTH_BIND_TIMEOUT", "30")
+        )
+        while True:
+            try:
+                server = HTTPServer(("localhost", port), _Handler)
+                break
+            except OSError as e:
+                if time.monotonic() >= bind_deadline:
+                    raise RuntimeError(
+                        f"OAuth callback port {port} is busy — another memhub "
+                        "script or an /mcp authentication is mid-flow. Finish "
+                        "that approval (or wait a moment) and re-run; the port "
+                        "comes from .mcp.json oauth.callbackPort."
+                    ) from e
+                await asyncio.sleep(1.0)
         server.timeout = 1  # let handle_request tick so the loop can exit
 
         def serve():
@@ -177,10 +198,24 @@ def _make_callback_handler(port: int):
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        # Wait for the browser round-trip without blocking the event loop.
-        while not done.is_set():
-            await asyncio.sleep(0.2)
-        server.server_close()
+        # Wait for the browser round-trip without blocking the event loop —
+        # but never forever: a closed tab, blocked localhost, or a headless
+        # box without $MEMHUB_TOKEN must end in a clear error, not a hang.
+        approval_timeout = float(os.environ.get("MEMHUB_OAUTH_TIMEOUT", "300"))
+        deadline = time.monotonic() + approval_timeout
+        try:
+            while not done.is_set():
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"OAuth approval timed out after {int(approval_timeout)}s "
+                        "(no browser redirect received; override via "
+                        "$MEMHUB_OAUTH_TIMEOUT). Re-run and complete the browser "
+                        "approval, or set $MEMHUB_TOKEN for headless use."
+                    )
+                await asyncio.sleep(0.2)
+        finally:
+            done.set()  # stop the serve thread
+            server.server_close()
         if result.get("error"):
             raise RuntimeError(
                 f"authorization server returned error: {result['error']}"

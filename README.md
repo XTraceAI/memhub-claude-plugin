@@ -96,16 +96,19 @@ format is gone; invocation is unchanged). Each is both user-invocable as
   shares it read-only via `share_context_base`. The teammate's agent picks it
   up by searching that context base.
 - `/memhub:spec <init|revise|check|status>` — spec-driven development on team
-  memory. The spec is a **versioned artifact** (every revision carries a
-  rationale; versions are diffable via `diff_artifact_versions`) living in its
-  own shareable context base alongside reviews, ADRs, and imported
-  implementation sessions, mirrored by a file in the repo
-  (`docs/specs/<slug>.md`). A `spec:<slug>` tag threads everything together.
-  `init` drafts/uploads and shares; `revise` versions with a required
+  memory. Each repo gets **one shared context base** (`Repo: <org>/<name>`,
+  derived from the git remote) holding ALL its specs alongside reviews, ADRs,
+  and imported implementation sessions — share it once per teammate and every
+  current and future spec is visible to them. Each spec is a **versioned
+  artifact** in that room (every revision carries a rationale; versions are
+  diffable via `diff_artifact_versions`), mirrored by a file in the repo
+  (`docs/specs/<slug>.md`); a `spec:<slug>` tag picks it out of the shared
+  room. `init` drafts/uploads and shares; `revise` versions with a required
   rationale and reports the diff; `check` detects the spec drifting under
   this session's work (local file vs. artifact lineage); `status` is the
-  multiplayer view — decisions, sessions, and artifacts accumulated in the
-  spec's context base.
+  multiplayer view — repo overview with no topic, per-spec activity with one.
+  Sharing is read-only, so the room's creator owns revisions; teammates
+  propose spec changes through the normal repo/PR flow.
 
 ## Fleet plugin (v0.1)
 

@@ -1,23 +1,33 @@
 ---
-description: Use when the user wants spec-driven development backed by team memory — create, revise, drift-check, or report on a spec held in MemHub (e.g. "start a spec for X", "save this as the team spec", "revise the spec", "did the spec change under me?", "what's the status of the retry-policy spec?"). Specs are versioned artifacts in a shareable context base; every revision carries a rationale and is diffable.
+description: Use when the user wants spec-driven development backed by team memory — create, revise, drift-check, or report on a spec held in MemHub (e.g. "start a spec for X", "save this as the team spec", "revise the spec", "did the spec change under me?", "what's the status of the retry-policy spec?"). Specs are versioned artifacts in the repo's shared context base; every revision carries a rationale and is diffable.
 argument-hint: <init|revise|check|status> [file|topic] [...]
 allowed-tools: mcp__memhub-staging__search_memory, mcp__memhub-staging__get_artifact, mcp__memhub-staging__get_artifact_lineage, mcp__memhub-staging__diff_artifact_versions, mcp__memhub-staging__list_context_bases, mcp__memhub-staging__create_context_base, mcp__memhub-staging__share_context_base, mcp__memhub-staging__list_teammates, mcp__memhub-staging__list_tags, Bash
 ---
 
 Run spec-driven development on top of MemHub. The model:
 
-- The **spec is a versioned artifact** (`artifact_type: "spec"`). Revisions are
-  versions with a `rationale`; `diff_artifact_versions` shows what moved and
-  `get_artifact_lineage` shows why, in order.
-- The spec lives in its own **context base** (`Spec: <title>`) — the spec's
-  room. Reviews, ADRs, and imported implementation sessions land there too, so
-  one search answers "everything about this spec".
+- **One context base per repo** — the repo's shared room. Its exact name is
+  derived from the git remote: `Repo: <org>/<name>` (from
+  `git remote get-url origin`, host and `.git` stripped — e.g.
+  `Repo: XTraceAI/memhub-claude-plugin`); no remote → `Repo: ` + basename of
+  `git rev-parse --show-toplevel`. ALL of the repo's specs live there,
+  alongside reviews, ADRs, and imported implementation sessions — share it
+  once per teammate and every current and future spec in the repo is visible
+  to them.
+- The **spec is a versioned artifact** (`artifact_type: "spec"`) inside that
+  room. Revisions are versions with a `rationale`; `diff_artifact_versions`
+  shows what moved and `get_artifact_lineage` shows why, in order.
 - A **work-item tag `spec:<slug>`** (kebab-case from the title) goes on the
-  spec and every related artifact. The tag is how `revise`/`check`/`status`
-  find the spec later — never guess by name alone.
+  spec and every related artifact. Many specs share one room, so the tag
+  (plus the artifact name `Spec: <title>`) is how revise/check/status pick
+  out THIS spec — never guess by name similarity alone.
 - The spec also lives **in the repo as a file** (default
   `docs/specs/<slug>.md`). The file is what implementers read in their
   worktree; the artifact is the shared truth. `check` compares the two.
+- Sharing is **read-only**: teammates can search/check/status the room, but
+  uploads into it work only for its creator. The intended flow: the spec
+  owner runs `init`/`revise`; read-only members propose changes by editing
+  the repo file (PR), and the owner lands them as a revision.
 
 File uploads ALWAYS go through the helper script (never call the
 `save_artifact` MCP tool directly, never re-emit file contents):
@@ -25,7 +35,7 @@ File uploads ALWAYS go through the helper script (never call the
 ```bash
 uv run --with mcp python "${CLAUDE_PLUGIN_ROOT}/scripts/save_artifact.py" \
   --file "<path>" --name "Spec: <title>" --type spec \
-  --context-base-id "<cb-id>" --tags "spec,spec:<slug>" \
+  --context-base-id "<repo-cb-id>" --tags "spec,spec:<slug>" \
   [--parent-id "<latest-version-id>"] [--rationale "<why>"]
 ```
 
@@ -34,6 +44,14 @@ before the per-subcommand parsing below; each subcommand reads only the
 REMAINING tokens. With no recognized subcommand, infer one from what the user
 said (creating → init, editing → revise, "did it change" → check, "where are
 we" → status) and treat all of `$ARGUMENTS` as its arguments.
+
+Every subcommand starts by **resolving the repo's room**: derive the name as
+above, then match it EXACTLY in `list_context_bases` — it may be one a
+teammate created and shared with you; use theirs rather than creating a
+duplicate. Only `init` creates it when missing (`create_context_base`, omit
+`workspace_id` — you need creator access to share it); the other subcommands
+stop and point at init if no room exists. Not a git repo → ask which context
+base to use.
 
 ## init `[file-path | title...] [for <teammates>]`
 
@@ -45,33 +63,35 @@ we" → status) and treat all of `$ARGUMENTS` as its arguments.
    is the point here; this is NOT the file-upload case the save-artifact
    skill guards against. Derive `<title>` from the argument or content;
    `<slug>` is its short kebab-case form.
-2. Check `list_context_bases` for one named exactly `"Spec: <title>"`. If it
-   exists, this spec already has a lineage: STOP the init flow here and run
-   the **revise** steps instead (resolve the existing artifact, `--parent-id`
-   the newest version, require a rationale) — uploading without a parent
-   would create a second root artifact and break check/revise diffs. Any
-   `for <teammates>` sharing still applies (step 4, against the existing
-   context base).
-   Otherwise `create_context_base` with that name and a one-line description.
-   Omit `workspace_id` (you need creator/contributor access to share it).
-3. Upload the file with the script (no `--parent-id` — this is the first
+2. Resolve the repo's room; create it only if no exact-name match exists.
+3. Check whether THIS spec already has a lineage there: `search_memory` with
+   `memory_type: "artifacts"`, `tags: ["spec:<slug>"]`, and the room's
+   `context_base_id`. A hit → STOP the init flow and run the **revise**
+   steps instead (`--parent-id` the newest version, rationale required) —
+   uploading without a parent would create a second root artifact and break
+   check/revise diffs. Any `for <teammates>` sharing still applies (step 5).
+4. Upload the file with the script (no `--parent-id` — this is the first
    version of a fresh lineage).
-4. If the user named teammates ("for Alice and Bob"), resolve each via
+5. If the user named teammates ("for Alice and Bob"), resolve each via
    `list_teammates` (case-insensitive; ambiguous → show candidates and ask,
    never guess between two people) and `share_context_base` with each
-   `user_id`. Nobody named → skip; say it's shareable on request.
-5. Report: artifact id, context base name, file path, the `spec:<slug>` tag,
-   who can see it, and the line teammates send their agent verbatim:
+   `user_id`. Tell the user this opens the repo's WHOLE room — every spec
+   and imported session in it, now and future — not just this spec. Nobody
+   named → skip; note it may already be shared from an earlier spec.
+6. Report: artifact id, room name, file path, the `spec:<slug>` tag, who can
+   see it, and the line teammates send their agent verbatim:
 
-   > Ask your agent: *search the "Spec: <title>" context base in memhub*
+   > Ask your agent: *search the "Repo: <org>/<name>" context base in
+   > memhub for "<title>"*
 
 ## revise `[file-path] [rationale...]`
 
-1. Resolve the spec: `search_memory` with `memory_type: "artifacts"` and
+1. Resolve the room, then the spec inside it: `search_memory` with
+   `memory_type: "artifacts"`, the room's `context_base_id`, and
    `tags: ["spec:<slug>"]` if the slug is known from context, else
    `tags: ["spec"]` plus a query for the topic. Several candidates → ask.
 2. `get_artifact_lineage` on it; the NEWEST version's id is the
-   `--parent-id`. Use the artifact's context base for `--context-base-id`.
+   `--parent-id`.
 3. The revised content is the repo file (default: the file `init` wrote; or
    the path given). If the change was discussed but not yet applied, edit the
    file first. A rationale is REQUIRED — take it from the arguments or the
@@ -82,11 +102,17 @@ we" → status) and treat all of `$ARGUMENTS` as its arguments.
    English plus the rationale. Remind the user that teammates' agents see the
    new version on their next `check` — there is no push notification.
 
+If the upload fails on permissions, the room belongs to a teammate and you
+are a read-only member: don't fight it — put the change in the repo file via
+the normal PR flow and tell the user the room's owner runs `spec revise` to
+land it as a version.
+
 ## check `[file-path]`
 
 Answer: "is the spec I'm building against still the spec?"
 
-1. Resolve the spec (as in revise) and `get_artifact` the latest version.
+1. Resolve the room and the spec (as in revise), `get_artifact` the latest
+   version.
 2. Find the local spec file (argument, `docs/specs/<slug>.md`, or the file
    from earlier in this session). Compare contents:
    - identical → in sync; say so, one line, done.
@@ -104,29 +130,34 @@ Answer: "is the spec I'm building against still the spec?"
 
 ## status `[topic]`
 
-The multiplayer view: everything the team's memory holds about this spec.
+The multiplayer view: what the team's memory holds about a spec — or the
+whole repo.
 
-1. Resolve the spec and its context base.
-2. `search_memory` with `context_base_id`, `memory_type: "all"`, a raised
-   `top_k` (~30), and the topic (or the spec title) as the query.
+1. Resolve the room. No topic given → repo overview: `search_memory` the room
+   for artifacts tagged `spec`, list each spec with its version count and
+   latest rationale plus any recent related activity, and stop.
+2. With a topic, pick the spec (as in revise), then `search_memory` the room
+   with `memory_type: "all"`, a raised `top_k` (~30), and the spec title +
+   topic as the query. The room is repo-wide — facts and episodes from OTHER
+   specs' sessions will surface; filter by relevance and drop them rather
+   than padding the report.
 3. Report, citing memory types: current version + how many revisions and the
    latest rationale; decisions recorded (facts/episodes from imported
    implementation sessions); related artifacts (reviews, ADRs, handoffs);
-   open questions still in the spec. If the context base holds nothing beyond
-   the spec itself, say so plainly — that means no implementation session has
-   been imported into it yet.
+   open questions still in the spec. If nothing relevant exists beyond the
+   spec artifact itself, say so plainly — no implementation session touching
+   this spec has been imported yet.
 
-To land an implementation session into the spec's room, import it with a
-fresh conversation id (re-imports dedup per conversation_id globally):
+To land an implementation session into the repo's room, import it with a
+fresh conversation id (re-imports dedup per conversation_id globally) and a
+title naming the spec:
 
 ```bash
 uv run --with mcp python "${CLAUDE_PLUGIN_ROOT}/scripts/import_session.py" \
-  --session "<session-id-or-path>" --context-base-id "<cb-id>" \
+  --session "<session-id-or-path>" --context-base-id "<repo-cb-id>" \
   --conversation-id "$(uuidgen)" --title "Spec: <title> — <what was built>"
 ```
 
 Plain-English output throughout; surface ids only where the user needs them
 (artifact id, context base id for scripts). On first ever script run the
-browser may open once for OAuth approval — expected, not an error. If
-`share_context_base` fails on permissions, the context base wasn't created by
-you — create your own (init step 2) and retry.
+browser may open once for OAuth approval — expected, not an error.

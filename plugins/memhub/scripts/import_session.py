@@ -14,8 +14,9 @@ Mirrors the SessionEnd hook's contract exactly:
   records it hasn't seen, and the session gist folds forward instead of
   duplicating.
 
-Auth reuses the memhub-cli login (no credentials handled here): prefer
-$MEMHUB_TOKEN, else `memhub token`, else `uvx memhub token`.
+Auth = the SAME OAuth the /mcp connector uses (shared `_memhub_auth`):
+$MEMHUB_TOKEN if set (CI escape hatch), else the cached plugin OAuth token,
+else a one-time browser approval. No memhub-cli required.
 
 Usage (mcp SDK pulled ephemerally by uv):
     uv run --with mcp python import_session.py --session <session-id-or-path>
@@ -29,48 +30,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-
-def default_url() -> str:
-    """--url > env > the plugin connector's .mcp.json > staging default."""
-    base = os.environ.get("MEMHUB_MCP_BASE_URL")
-    if base:
-        path = os.environ.get("MEMHUB_MCP_SERVER_PATH", "/mcp-server/mcp")
-        return f"{base.rstrip('/')}{path}"
-    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    cfg = (Path(root) if root else Path(__file__).resolve().parents[1]) / ".mcp.json"
-    try:
-        servers = json.loads(cfg.read_text()).get("mcpServers", {})
-        name = next((k for k in servers if k.lower().startswith("memhub")),
-                    next(iter(servers)) if len(servers) == 1 else None)
-        if name and servers[name].get("url"):
-            return servers[name]["url"]
-    except (OSError, json.JSONDecodeError):
-        pass
-    return "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
-
-
-def resolve_token() -> str:
-    token = os.environ.get("MEMHUB_TOKEN", "").strip()
-    if token:
-        return token
-    for cmd in (["memhub", "token"], ["uvx", "memhub", "token"]):
-        try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if out.returncode == 0 and out.stdout.strip():
-                return out.stdout.strip().splitlines()[-1].strip()
-        except FileNotFoundError:
-            continue
-        except Exception as e:  # noqa: BLE001
-            print(f"`{' '.join(cmd)}` failed: {e}", file=sys.stderr)
-    return ""
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _memhub_auth import resolve_url_and_auth  # noqa: E402
 
 
 def resolve_session_file(session: str) -> Path | None:
@@ -130,13 +97,8 @@ async def main() -> int:
         print(f"ERROR: {f} is empty", file=sys.stderr)
         return 2
 
-    token = resolve_token()
-    if not token:
-        print("ERROR: no token. Run `memhub login` or set MEMHUB_TOKEN.", file=sys.stderr)
-        return 2
-
     conv_id = args.conversation_id or f.stem
-    url = args.url or default_url()
+    url, headers, auth = resolve_url_and_auth(args.url)
     size = f.stat().st_size
     print(f"session file    : {f}")
     print(f"records         : {len(records)}   ({size:,} bytes ≈ {size // 4:,} tokens)")
@@ -156,8 +118,7 @@ async def main() -> int:
     if args.context_base_id:
         call_args["context_base_id"] = args.context_base_id
 
-    headers = {"Authorization": f"Bearer {token}"}
-    async with streamablehttp_client(url, headers=headers) as (r, w, _):
+    async with streamablehttp_client(url, headers=headers, auth=auth) as (r, w, _):
         async with ClientSession(r, w) as s:
             await s.initialize()
             res = await s.call_tool("import_conversation", arguments=call_args)

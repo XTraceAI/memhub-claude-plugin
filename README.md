@@ -14,7 +14,11 @@ This repo is both a **marketplace** and a single **plugin**:
 plugins/memhub/
 ├── .claude-plugin/plugin.json      # plugin manifest
 ├── .mcp.json                       # the memhub-staging MCP server (per-user OAuth)
-└── hooks/hooks.json                # SessionEnd → agent hook → import_conversation
+├── hooks/hooks.json                # SessionEnd → agent hook → import_conversation
+└── skills/                         # /memhub:* skills (also auto-invoked by Claude)
+    ├── import-session/             # import a past session, any size
+    ├── save-artifact/              # store a file as a MemHub artifact
+    └── search-memory/              # read-only team-memory recall
 ```
 
 ## Install
@@ -64,6 +68,21 @@ hook never opens a browser, so the cache must be seeded once by running any
 memhub terminal script interactively — e.g. `/memhub:import-session` — or by
 setting `$MEMHUB_TOKEN`. Until then the hook degrades silently (the
 SessionEnd agent hook still captures everything at close).
+
+## Skills (v0.4)
+
+Three skills ship in `plugins/memhub/skills/` (the deprecated `commands/`
+format is gone; invocation is unchanged). Each is both user-invocable as
+`/memhub:<name>` and **model-invocable**: saying "save this spec to memhub" or
+"what did we decide about X?" in plain language triggers the right skill.
+
+- `/memhub:import-session <id-or-path> [title]` — terminal upload of a past
+  session transcript; auto-chunks very large sessions.
+- `/memhub:save-artifact <file> [name]` — terminal upload of a file as an
+  artifact. Both upload skills exist so the model never re-emits file or
+  transcript content token by token — a helper script ships the bytes.
+- `/memhub:search-memory <query>` — read-only recall over facts, episodes,
+  artifacts, and documents, with context-base / tag / time filters.
 
 ## Notes & trade-offs
 

@@ -1,5 +1,5 @@
 ---
-description: Import a specific Claude Code session into MemHub via a terminal upload (any size — the script ships the transcript, no token-by-token re-emit)
+description: Use when the user asks to import, upload, or save a Claude Code session/conversation/transcript into MemHub or team memory (e.g. "import this session into memhub", "save session <id> to memhub", "put that conversation in a context base"). Ships the transcript via a terminal upload script — any size, no token-by-token re-emit.
 argument-hint: <session-id-or-path> [title...]
 allowed-tools: Bash
 ---
@@ -15,6 +15,10 @@ Arguments: `$ARGUMENTS`
   a `.jsonl` transcript (required). A bare id is resolved automatically under
   `~/.claude/projects/*/`.
 - Remaining text = an optional conversation title.
+- If invoked without arguments (e.g. the user said "import this session"), ask
+  which session they mean — or, for "this/the current session", use the most
+  recently modified `.jsonl` under the `~/.claude/projects/` directory matching
+  the current working directory.
 
 Do exactly this:
 

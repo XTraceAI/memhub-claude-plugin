@@ -1,5 +1,5 @@
 ---
-description: Store a file as a MemHub artifact via a terminal upload (no token-by-token re-emit)
+description: Use when the user asks to save, store, or upload a file/document/spec to MemHub or team memory as an artifact (e.g. "save this spec to memhub", "store this doc as an artifact", "version this design doc in memhub"). Uploads the file's bytes via a terminal script — never call save_artifact directly or re-emit file contents.
 argument-hint: <file-path> [artifact name]
 allowed-tools: Bash
 ---
@@ -10,7 +10,9 @@ paste/retype the file contents**; that would regenerate the whole document token
 by token. This is a terminal operation, like `cat`-ing a file.
 
 Arguments: `$ARGUMENTS`
-- First token = the path to the file to store (required).
+- First token = the path to the file to store (required). If invoked without a
+  path (e.g. the user said "save this to memhub" about a file just discussed),
+  use that file's path; ask if ambiguous.
 - Remaining text = the artifact name (optional; if omitted, use the file's base
   name as a readable title).
 

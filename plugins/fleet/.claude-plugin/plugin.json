@@ -1,7 +1,7 @@
 {
   "name": "fleet",
-  "description": "Live awareness across parallel Claude Code agents working in git worktrees of the same repo. A shared board file in the repo's common .git dir tracks what every agent is working on; hooks register each session on start, update its entry on commits and prompts, and inject sibling-agent updates into context at every turn — so agents coordinate by awareness instead of colliding. Local-only: no server, no auth.",
-  "version": "0.1.0",
+  "description": "Live awareness across parallel Claude Code agents working in git worktrees of the same repo. A shared board file in the repo's common .git dir tracks what every agent is working on; hooks register each session on start, update its entry on commits and prompts, and inject sibling-agent updates into context at every turn — so agents coordinate by awareness instead of colliding. Ships a /fleet:status skill that pretty-prints the board. Local-only: no server, no auth.",
+  "version": "0.2.0",
   "author": {
     "name": "XTrace",
     "email": "felixmeng@xtrace.ai"

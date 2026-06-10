@@ -23,7 +23,8 @@ plugins/memhub/
 plugins/fleet/
 ├── .claude-plugin/plugin.json      # plugin manifest
 ├── hooks/hooks.json                # SessionStart/UserPromptSubmit/PostToolUse/SessionEnd
-└── scripts/fleet_board.py          # one script, one subcommand per hook event
+├── scripts/fleet_board.py          # one script, one subcommand per hook event
+└── skills/status/                  # /fleet:status — pretty-print the board
 ```
 
 ## Install
@@ -113,6 +114,10 @@ agent with no server and no auth. Hooks keep it current:
   touched on this agent's entry, so siblings get collision warnings before
   editing the same files.
 - **SessionEnd** — marks the entry ended (siblings see it; pruned later).
+
+For a human-facing view, `/fleet:status` (also triggered by "what's the
+fleet doing?") pretty-prints the board: who's active where, what each agent
+is working on, last commits with age, and any file overlaps between agents.
 
 Pairs with the memhub plugin: the board says *who is doing what right now*
 (seconds, one line each); the flush hook already lands every session's

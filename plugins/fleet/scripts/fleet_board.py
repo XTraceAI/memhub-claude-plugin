@@ -252,6 +252,10 @@ def main():
     if not path or not sid:
         return 0
     branch = git(cwd, "rev-parse", "--abbrev-ref", "HEAD") or "?"
+    # the session may have been launched in a repo subdirectory — board
+    # entries always carry the worktree's toplevel so consumers (the status
+    # skill, prune) can compare paths reliably
+    worktree = git(cwd, "rev-parse", "--show-toplevel") or cwd
 
     if cmd == "session-start":
         with Board(path) as b:
@@ -270,7 +274,7 @@ def main():
             }
             me.update({
                 "branch": branch,
-                "worktree": cwd,
+                "worktree": worktree,
                 "last_update": now(),
                 "status": "active",
             })
@@ -294,7 +298,7 @@ def main():
         text = None
         with Board(path) as b:
             me = b.data["agents"].setdefault(sid, {
-                "session_id": sid, "branch": branch, "worktree": cwd,
+                "session_id": sid, "branch": branch, "worktree": worktree,
                 "started": now(), "status": "active",
                 "working_on": None, "last_commit": None, "seen": {},
             })

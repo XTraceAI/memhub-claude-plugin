@@ -5,8 +5,9 @@ The point: the artifact body is read off disk / the pipe and shipped straight
 to the `save_artifact` MCP tool. The model never re-emits the content token by
 token — it just runs this with a path, the same way it would `cat` a file.
 
-Auth reuses the memhub-cli token (no credential handling here): prefer
-$MEMHUB_TOKEN, else `memhub token` on PATH.
+Auth = the SAME OAuth the /mcp connector uses (shared `_memhub_auth`):
+$MEMHUB_TOKEN if set (CI escape hatch), else the cached plugin OAuth token,
+else a one-time browser approval. No memhub-cli required.
 
 Run (mcp SDK pulled ephemerally by uv):
     uv run --with mcp python scripts/save_artifact.py \
@@ -27,62 +28,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-
-def _mcp_json_url() -> str | None:
-    """The endpoint the plugin's MCP connector uses — the source of truth.
-
-    Reads ``<plugin_root>/.mcp.json`` (``$CLAUDE_PLUGIN_ROOT`` when installed,
-    else the script's parent dir) and returns the server ``url``. Keyed by
-    server *name*, so prefer a ``memhub*`` entry, then fall back to the sole
-    entry. Returns None if the file/entry is absent or unreadable.
-    """
-    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    cfg = (Path(root) if root else Path(__file__).resolve().parents[1]) / ".mcp.json"
-    try:
-        servers = json.loads(cfg.read_text()).get("mcpServers", {})
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not servers:
-        return None
-    name = next((k for k in servers if k.lower().startswith("memhub")),
-                next(iter(servers)) if len(servers) == 1 else None)
-    return servers.get(name, {}).get("url") if name else None
-
-
-def default_url() -> str:
-    # Explicit env override (matches memhub-cli's own config knobs).
-    base = os.environ.get("MEMHUB_MCP_BASE_URL")
-    if base:
-        path = os.environ.get("MEMHUB_MCP_SERVER_PATH", "/mcp-server/mcp")
-        return f"{base.rstrip('/')}{path}"
-    # Otherwise follow the plugin connector's endpoint, then fall back to staging.
-    return _mcp_json_url() or "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
-
-
-def resolve_token() -> str:
-    token = os.environ.get("MEMHUB_TOKEN", "").strip()
-    if token:
-        return token
-    # The same token `memhub token` prints (memhub-cli OAuth cache). Try the
-    # installed CLI, then `uvx` as a fallback for un-installed environments.
-    for cmd in (["memhub", "token"], ["uvx", "memhub", "token"]):
-        try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if out.returncode == 0 and out.stdout.strip():
-                return out.stdout.strip().splitlines()[-1].strip()
-        except FileNotFoundError:
-            continue
-        except Exception as e:  # noqa: BLE001
-            print(f"`{' '.join(cmd)}` failed: {e}", file=sys.stderr)
-    return ""
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _memhub_auth import resolve_url_and_auth  # noqa: E402
 
 
 def unwrap(result) -> dict:
@@ -112,14 +65,12 @@ async def main() -> int:
     ap.add_argument("--url", default=None)
     args = ap.parse_args()
 
+    if not args.stdin and not args.file.is_file():
+        print(f"ERROR: file not found: {args.file}", file=sys.stderr)
+        return 2
     content = sys.stdin.read() if args.stdin else args.file.read_text()
     if not content.strip():
         print("ERROR: artifact body is empty", file=sys.stderr)
-        return 2
-
-    token = resolve_token()
-    if not token:
-        print("ERROR: no token. Run `memhub login` or set MEMHUB_TOKEN.", file=sys.stderr)
         return 2
 
     call_args: dict = {"name": args.name, "content": content, "artifact_type": args.type}
@@ -132,15 +83,14 @@ async def main() -> int:
     if args.tags:
         call_args["tags"] = [t.strip() for t in args.tags.split(",") if t.strip()]
 
-    url = args.url or default_url()
+    url, headers, auth = resolve_url_and_auth(args.url)
     src_desc = "stdin" if args.stdin else str(args.file)
     print(f"source   : {src_desc}  ({len(content):,} chars)")
     print(f"name     : {args.name}   type={args.type}")
     print(f"endpoint : {url}")
     print("-" * 56)
 
-    headers = {"Authorization": f"Bearer {token}"}
-    async with streamablehttp_client(url, headers=headers) as (read, write, _):
+    async with streamablehttp_client(url, headers=headers, auth=auth) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             res = await session.call_tool("save_artifact", arguments=call_args)

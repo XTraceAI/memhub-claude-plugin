@@ -30,8 +30,9 @@ Do exactly this:
    Optional flags when relevant: `--context-base-id <id>` to save into a context
    base, `--parent-id <id>` to version an existing artifact, `--rationale "..."`
    to note why this version supersedes the last, `--tags a,b`.
-4. Report the returned `{id, action}` to the user. If it prints an auth error,
-   tell them to run `memhub login` (the script reuses the memhub-cli token).
+4. Report the returned `{id, action}` to the user. On first ever run the script may
+   open the browser once for OAuth approval (same flow as /mcp; token cached
+   after that) — that is expected, not an error.
 
 You only emit the short command with a path — the script reads the file and
 ships it to `save_artifact`.

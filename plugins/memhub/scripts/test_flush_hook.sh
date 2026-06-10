@@ -31,7 +31,8 @@ for cmd in "gh pr create --title x" "gh pr merge 5 --squash" \
            "env VAR=1 git commit -m x" \
            "nohup git commit -m x" \
            "timeout 60 git commit -m x" \
-           "cd /x; FOO=1 gh pr create --fill"; do
+           "cd /x; FOO=1 gh pr create --fill" \
+           "git -c user.name=x -c user.email=y -c core.editor=vim commit -m z"; do
   out=$(run "{\"tool_input\":{\"command\":\"$cmd\"}}")
   case "$out" in
     *"[memhub-flush]"*) echo "PASS  flush ran:   $cmd" ;;
@@ -49,6 +50,7 @@ silent '{"tool_input":{"command":"cat notes.md"},"tool_response":{"stdout":"run 
 silent '{"tool_input":{"command":"git log --oneline | grep commit"}}' "cross-pipe git…commit"
 silent '{"tool_input":{"command":"echo git commit"}}' "echoed mention"
 silent '{"tool_input":{"command":"MSG=\"please git commit\" ls"}}' "mention inside assignment value"
+silent '{"tool_input":{"command":"git diff main commit"}}' "commit as ref word after non-flag"
 
 # Unset CLAUDE_PLUGIN_ROOT must fail LOUDLY (a log line), not collapse to
 # /scripts/… and die silently.

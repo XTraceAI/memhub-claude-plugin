@@ -38,10 +38,17 @@ _ASSIGN = rf"""[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|(?!["']){_TOK}*)"""
 _WRAPPER = r"(?:env|nohup|command|exec|time|timeout|sudo|nice|stdbuf|caffeinate)"
 _PREFIX = rf"(?:(?:{_ASSIGN}|{_WRAPPER})\s+(?:(?:-{_TOK}*|\d+{_TOK}*|{_ASSIGN})\s+)*)*"
 # A new shell segment (start, or after ; & | parens), optional assignment /
-# wrapper prefixes, then `git`, then up to a few non-separator tokens (flags
-# like -C <path>, -c k=v, --git-dir=x), then `commit`.
+# wrapper prefixes, then `git`, then any number of GLOBAL-FLAG groups, then
+# `commit`. A flag group is a `-`-initiated token plus at most one non-flag
+# argument (`-C <path>`, `-c k=v`, `--git-dir=x`, `-p`), so arbitrarily many
+# `git -c key=value` pairs still match — the old `{0,4}` token cap silently
+# skipped real commits carrying 3+ pairs. Requiring each group to OPEN with
+# `-` is also what keeps `git diff main commit` (commit as a ref/path word)
+# from firing: a bare non-flag token between `git` and `commit` blocks the
+# match. The flag ARGUMENT must not start with `-` so runs of standalone
+# flags parse unambiguously instead of pairing up via backtracking.
 _GIT_COMMIT = re.compile(
-    rf"(?:^|[;&|()]\s*){_PREFIX}git(?:\s+{_TOK}+){{0,4}}?\s+commit\b"
+    rf"(?:^|[;&|()]\s*){_PREFIX}git(?:\s+-{_TOK}*(?:\s+(?!-){_TOK}+)?)*?\s+commit\b"
 )
 _GH_PR = re.compile(
     rf"(?:^|[;&|()]\s*){_PREFIX}gh\s+pr\s+(?:create|merge)\b"

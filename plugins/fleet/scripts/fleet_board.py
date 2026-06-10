@@ -188,6 +188,13 @@ def delta_lines(others: list, seen: dict):
         if e.get("status") == "ended" and old.get("st") == "active":
             lines.append(f"- {branch} ended its session")
             continue
+        if e.get("status") == "active" and old.get("st") == "ended":
+            wo = f" — working on: {e['working_on']}" if e.get("working_on") else ""
+            c = e.get("last_commit") or {}
+            cm = (f' — last commit: "{c["message"]}"'
+                  if c.get("message") and c.get("hash") != old.get("ch") else "")
+            lines.append(f"- {branch} rejoined the fleet{wo}{cm}")
+            continue
         c = e.get("last_commit") or {}
         if c.get("hash") and c.get("hash") != old.get("ch"):
             files = ", ".join(c.get("files", [])[:MAX_COMMIT_FILES])
@@ -265,6 +272,7 @@ def main():
                 "working_on": None, "last_commit": None, "seen": {},
             })
             me["last_update"] = now()
+            me["status"] = "active"
             wo = derive_working_on(hook.get("prompt", "") or "")
             if wo:
                 me["working_on"] = wo
@@ -279,13 +287,30 @@ def main():
     elif cmd == "post-tool":
         # the hooks.json prefilter matches the whole hook payload, which can
         # carry "git"+"commit" in output text (a pull, a log mention) — require
-        # an actual `git [-C <path>] ... commit` invocation in the Bash command
+        # `commit` as git's actual subcommand (first non-option token), so
+        # `git diff main commit`, `feature/commit`, `commit-tree` don't pass
         bash_cmd = (hook.get("tool_input") or {}).get("command") or ""
-        m = re.search(r"\bgit\b(?:\s+-C\s+(\"[^\"]+\"|'[^']+'|\S+))?[^|;&]*\bcommit\b",
-                      bash_cmd)
+        m = re.search(
+            r"\bgit\s+"
+            r"(?:-C\s+(\"[^\"]+\"|'[^']+'|\S+)\s+|-c\s+\S+\s+|--?[\w=./-]+\s+)*"
+            r"commit(?![\w/-])",
+            bash_cmd)
         if not m:
             return 0
         git_cwd = (m.group(1) or "").strip("\"'") or cwd
+        if git_cwd != cwd:
+            # a -C path must still be THIS board's repo — never attach a
+            # foreign repo's HEAD to this session's entry
+            here = git(cwd, "rev-parse", "--git-common-dir")
+            there = git(git_cwd, "rev-parse", "--git-common-dir")
+            if not here or not there:
+                return 0
+            if not os.path.isabs(here):
+                here = os.path.join(cwd, here)
+            if not os.path.isabs(there):
+                there = os.path.join(git_cwd, there)
+            if os.path.realpath(here) != os.path.realpath(there):
+                return 0
         # and only record HEAD if it was created within the last two minutes
         ct = git(git_cwd, "log", "-1", "--pretty=%ct")
         if not ct or not ct.isdigit() or now() - int(ct) > 120:

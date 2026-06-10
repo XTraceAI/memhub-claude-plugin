@@ -10,10 +10,11 @@ write to the board.
 
 Do exactly this:
 
-1. Read the board and the current time in one command:
+1. Read the board and the current time in one command (`--path-format=absolute`
+   matters — the relative form depends on the cwd the command happens to run in):
 
    ```bash
-   BOARD="$(git rev-parse --git-common-dir 2>/dev/null)/fleet-board.json"
+   BOARD="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/fleet-board.json"
    date +%s && cat "$BOARD"
    ```
 

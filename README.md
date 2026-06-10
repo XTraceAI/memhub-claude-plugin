@@ -16,6 +16,7 @@ plugins/memhub/
 ├── .mcp.json                       # the memhub-staging MCP server (per-user OAuth)
 ├── hooks/hooks.json                # SessionEnd → agent hook → import_conversation
 └── skills/                         # /memhub:* skills (also auto-invoked by Claude)
+    ├── handoff-session/            # hand the current session to a teammate
     ├── import-session/             # import a past session, any size
     ├── save-artifact/              # store a file as a MemHub artifact
     └── search-memory/              # read-only team-memory recall
@@ -74,9 +75,9 @@ memhub terminal script interactively — e.g. `/memhub:import-session` — or by
 setting `$MEMHUB_TOKEN`. Until then the hook degrades silently (the
 SessionEnd agent hook still captures everything at close).
 
-## Skills (v0.4)
+## Skills (v0.5)
 
-Three skills ship in `plugins/memhub/skills/` (the deprecated `commands/`
+Four skills ship in `plugins/memhub/skills/` (the deprecated `commands/`
 format is gone; invocation is unchanged). Each is both user-invocable as
 `/memhub:<name>` and **model-invocable**: saying "save this spec to memhub" or
 "what did we decide about X?" in plain language triggers the right skill.
@@ -88,6 +89,11 @@ format is gone; invocation is unchanged). Each is both user-invocable as
   transcript content token by token — a helper script ships the bytes.
 - `/memhub:search-memory <query>` — read-only recall over facts, episodes,
   artifacts, and documents, with context-base / tag / time filters.
+- `/memhub:handoff-session <teammate> [title]` — hand the current session to a
+  teammate: creates a context base holding a composed handoff brief (goal,
+  state, decisions, next steps, gotchas) plus the full session import, and
+  shares it read-only via `share_context_base`. The teammate's agent picks it
+  up by searching that context base.
 
 ## Fleet plugin (v0.1)
 

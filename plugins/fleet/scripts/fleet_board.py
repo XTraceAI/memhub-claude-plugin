@@ -18,12 +18,40 @@ All subcommands read the standard hook-input JSON on stdin and exit 0 in
 every failure mode — a coordination aid must never break a session.
 """
 
-import fcntl
 import json
 import os
+import re
 import subprocess
 import sys
 import time
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
+
+
+def _lock(f):
+    if fcntl:
+        fcntl.flock(f, fcntl.LOCK_EX)
+    elif msvcrt:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock(f):
+    try:
+        if fcntl:
+            fcntl.flock(f, fcntl.LOCK_UN)
+        elif msvcrt:
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
 
 ACTIVE_STALE_SECS = 12 * 3600   # active entry with no heartbeat for this long → prune
 ENDED_KEEP_SECS = 3600          # ended entries linger this long so siblings see the exit
@@ -73,7 +101,7 @@ class Board:
 
     def __enter__(self):
         self.lock = open(self.lock_path, "w")
-        fcntl.flock(self.lock, fcntl.LOCK_EX)
+        _lock(self.lock)
         try:
             with open(self.path) as f:
                 self.data = json.load(f)
@@ -91,7 +119,7 @@ class Board:
                     json.dump(self.data, f, indent=1)
                 os.replace(tmp, self.path)
         finally:
-            fcntl.flock(self.lock, fcntl.LOCK_UN)
+            _unlock(self.lock)
             self.lock.close()
         return False
 
@@ -200,17 +228,22 @@ def main():
         with Board(path) as b:
             b.prune()
             others = [e for e in b.others(sid) if e.get("status") == "active"]
-            b.data["agents"][sid] = {
+            # merge on resume/reconnect — a re-fired SessionStart must not wipe
+            # this agent's working_on / last_commit / seen state off the board
+            me = b.data["agents"].get(sid) or {
                 "session_id": sid,
-                "branch": branch,
-                "worktree": cwd,
                 "started": now(),
-                "last_update": now(),
-                "status": "active",
                 "working_on": None,
                 "last_commit": None,
                 "seen": snapshot_seen(others),
             }
+            me.update({
+                "branch": branch,
+                "worktree": cwd,
+                "last_update": now(),
+                "status": "active",
+            })
+            b.data["agents"][sid] = me
         if others:
             repo = os.path.basename(os.path.dirname(path)).removesuffix(".git") or \
                 os.path.basename(os.path.dirname(os.path.dirname(path)))
@@ -244,23 +277,31 @@ def main():
             context_out("UserPromptSubmit", text)
 
     elif cmd == "post-tool":
-        # the hooks.json prefilter is loose (any Bash call mentioning git+commit),
-        # so only record HEAD if it was created within the last two minutes
-        ct = git(cwd, "log", "-1", "--pretty=%ct")
+        # the hooks.json prefilter matches the whole hook payload, which can
+        # carry "git"+"commit" in output text (a pull, a log mention) — require
+        # an actual `git [-C <path>] ... commit` invocation in the Bash command
+        bash_cmd = (hook.get("tool_input") or {}).get("command") or ""
+        m = re.search(r"\bgit\b(?:\s+-C\s+(\"[^\"]+\"|'[^']+'|\S+))?[^|;&]*\bcommit\b",
+                      bash_cmd)
+        if not m:
+            return 0
+        git_cwd = (m.group(1) or "").strip("\"'") or cwd
+        # and only record HEAD if it was created within the last two minutes
+        ct = git(git_cwd, "log", "-1", "--pretty=%ct")
         if not ct or not ct.isdigit() or now() - int(ct) > 120:
             return 0
-        head = git(cwd, "rev-parse", "HEAD")
-        msg = git(cwd, "log", "-1", "--pretty=%s")
+        head = git(git_cwd, "rev-parse", "HEAD")
+        msg = git(git_cwd, "log", "-1", "--pretty=%s")
         if not head or msg is None:
             return 0
-        raw = git(cwd, "log", "-1", "--name-only", "--pretty=format:") or ""
+        raw = git(git_cwd, "log", "-1", "--name-only", "--pretty=format:") or ""
         files = [f for f in raw.splitlines() if f][:MAX_COMMIT_FILES]
         with Board(path) as b:
             me = b.data["agents"].get(sid)
             # keyed by hash so a re-fired hook can't re-announce the same HEAD
             if me is not None and (me.get("last_commit") or {}).get("hash") != head:
                 me["last_update"] = now()
-                me["branch"] = branch
+                me["branch"] = git(git_cwd, "rev-parse", "--abbrev-ref", "HEAD") or branch
                 me["last_commit"] = {"hash": head, "message": msg,
                                      "files": files, "at": int(ct)}
 

@@ -138,7 +138,7 @@ def snapshot_seen(others: list):
             "lu": e.get("last_update", 0),
             "st": e.get("status"),
             "wo": e.get("working_on"),
-            "ca": (e.get("last_commit") or {}).get("at", 0),
+            "ch": (e.get("last_commit") or {}).get("hash"),
         }
         for e in others
     }
@@ -153,13 +153,15 @@ def delta_lines(others: list, seen: dict):
         if old is None:
             if e.get("status") == "active":
                 wo = f" — working on: {e['working_on']}" if e.get("working_on") else ""
-                lines.append(f"- {branch} joined the fleet{wo}")
+                c = e.get("last_commit") or {}
+                cm = f' — last commit: "{c["message"]}"' if c.get("message") else ""
+                lines.append(f"- {branch} joined the fleet{wo}{cm}")
             continue
         if e.get("status") == "ended" and old.get("st") == "active":
             lines.append(f"- {branch} ended its session")
             continue
         c = e.get("last_commit") or {}
-        if c.get("at", 0) > old.get("ca", 0):
+        if c.get("hash") and c.get("hash") != old.get("ch"):
             files = ", ".join(c.get("files", [])[:MAX_COMMIT_FILES])
             lines.append(f'- {branch} committed "{c.get("message", "")}"'
                          + (f" touching {files}" if files else ""))
@@ -247,17 +249,20 @@ def main():
         ct = git(cwd, "log", "-1", "--pretty=%ct")
         if not ct or not ct.isdigit() or now() - int(ct) > 120:
             return 0
+        head = git(cwd, "rev-parse", "HEAD")
         msg = git(cwd, "log", "-1", "--pretty=%s")
-        if msg is None:
+        if not head or msg is None:
             return 0
         raw = git(cwd, "log", "-1", "--name-only", "--pretty=format:") or ""
         files = [f for f in raw.splitlines() if f][:MAX_COMMIT_FILES]
         with Board(path) as b:
             me = b.data["agents"].get(sid)
-            if me is not None:
+            # keyed by hash so a re-fired hook can't re-announce the same HEAD
+            if me is not None and (me.get("last_commit") or {}).get("hash") != head:
                 me["last_update"] = now()
                 me["branch"] = branch
-                me["last_commit"] = {"message": msg, "files": files, "at": now()}
+                me["last_commit"] = {"hash": head, "message": msg,
+                                     "files": files, "at": int(ct)}
 
     elif cmd == "session-end":
         with Board(path) as b:

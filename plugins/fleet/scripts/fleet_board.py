@@ -58,6 +58,23 @@ ENDED_KEEP_SECS = 3600          # ended entries linger this long so siblings see
 WORKING_ON_MAX = 120
 MAX_COMMIT_FILES = 8
 
+# Commit detection, adapted from the memhub plugin's flush_prefilter.py
+# (fleet and memhub install independently, so the pattern is ported rather
+# than imported — keep the two in sync when either changes). Segment-bounded:
+# `commit` must be git's subcommand within one shell segment, with only
+# env-assignment / wrapper prefixes allowed before `git`, so `echo git
+# commit`, `git diff main commit`, `feature/commit`, `commit-tree`, and
+# quoted mentions can't fire.
+_TOK = r"[^\s;&|()]"
+_ASSIGN = rf"""[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|(?!["']){_TOK}*)"""
+_WRAPPER = r"(?:env|nohup|command|exec|time|timeout|sudo|nice|stdbuf|caffeinate)"
+_PREFIX = rf"(?:(?:{_ASSIGN}|{_WRAPPER})\s+(?:(?:-{_TOK}*|\d+{_TOK}*|{_ASSIGN})\s+)*)*"
+_EOT = rf"(?!{_TOK})"
+GIT_COMMIT_RE = re.compile(
+    rf"(?:^|[;&|()]\s*){_PREFIX}git(?:\s+-{_TOK}*(?:\s+(?!-){_TOK}+)?)*?\s+commit{_EOT}"
+)
+GIT_C_PATH_RE = re.compile(r"\s-C\s+(\"[^\"]+\"|'[^']+'|\S+)")
+
 
 def now():
     return int(time.time())
@@ -179,11 +196,16 @@ def delta_lines(others: list, seen: dict):
         old = seen.get(sid)
         branch = f"`{e.get('branch', '?')}`"
         if old is None:
+            c = e.get("last_commit") or {}
+            cm = f' — last commit: "{c["message"]}"' if c.get("message") else ""
             if e.get("status") == "active":
                 wo = f" — working on: {e['working_on']}" if e.get("working_on") else ""
-                c = e.get("last_commit") or {}
-                cm = f' — last commit: "{c["message"]}"' if c.get("message") else ""
                 lines.append(f"- {branch} joined the fleet{wo}{cm}")
+            else:
+                # first sight of an already-ended sibling (this agent joined
+                # the board lazily, without a session-start snapshot)
+                lines.append(f"- {branch} ended its session "
+                             f"{ago(e.get('last_update', 0))}{cm}")
             continue
         if e.get("status") == "ended" and old.get("st") == "active":
             lines.append(f"- {branch} ended its session")
@@ -234,7 +256,9 @@ def main():
     if cmd == "session-start":
         with Board(path) as b:
             b.prune()
-            others = [e for e in b.others(sid) if e.get("status") == "active"]
+            others = b.others(sid)
+            actives = [e for e in others if e.get("status") == "active"]
+            ended = [e for e in others if e.get("status") != "active"]
             # merge on resume/reconnect — a re-fired SessionStart must not wipe
             # this agent's working_on / last_commit / seen state off the board
             me = b.data["agents"].get(sid) or {
@@ -254,10 +278,13 @@ def main():
         if others:
             repo = os.path.basename(os.path.dirname(path)).removesuffix(".git") or \
                 os.path.basename(os.path.dirname(os.path.dirname(path)))
-            lines = "\n".join(entry_line(e) for e in others)
+            head_bits = [f"{len(actives)} active sibling agent(s)"]
+            if ended:
+                head_bits.append(f"{len(ended)} recently ended")
+            lines = "\n".join(entry_line(e) for e in actives + ended)
             context_out("SessionStart",
-                        f"Fleet board — {len(others)} other agent(s) active on this repo "
-                        f"({repo}), each in its own worktree:\n{lines}\n"
+                        f"Fleet board for this repo ({repo}) — "
+                        + ", ".join(head_bits) + f":\n{lines}\n"
                         "Coordinate by awareness: if you are about to change a file a "
                         "sibling recently committed to or is working on, build on their "
                         "work instead of diverging, and tell the user about the overlap. "
@@ -286,18 +313,14 @@ def main():
 
     elif cmd == "post-tool":
         # the hooks.json prefilter matches the whole hook payload, which can
-        # carry "git"+"commit" in output text (a pull, a log mention) — require
-        # `commit` as git's actual subcommand (first non-option token), so
-        # `git diff main commit`, `feature/commit`, `commit-tree` don't pass
+        # carry "git"+"commit" in output text — require a real commit
+        # invocation in the command itself (see GIT_COMMIT_RE above)
         bash_cmd = (hook.get("tool_input") or {}).get("command") or ""
-        m = re.search(
-            r"\bgit\s+"
-            r"(?:-C\s+(\"[^\"]+\"|'[^']+'|\S+)\s+|-c\s+\S+\s+|--?[\w=./-]+\s+)*"
-            r"commit(?![\w/-])",
-            bash_cmd)
+        m = GIT_COMMIT_RE.search(bash_cmd)
         if not m:
             return 0
-        git_cwd = (m.group(1) or "").strip("\"'") or cwd
+        mc = GIT_C_PATH_RE.search(m.group(0))
+        git_cwd = (mc.group(1).strip("\"'") if mc else "") or cwd
         if git_cwd != cwd:
             # a -C path must still be THIS board's repo — never attach a
             # foreign repo's HEAD to this session's entry

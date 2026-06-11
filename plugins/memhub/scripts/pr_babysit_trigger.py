@@ -9,9 +9,20 @@ import re
 import sys
 
 PR_URL = re.compile(r"https?://[^/\s\"\\]+/[^/\s\"\\]+/[^/\s\"\\]+/pull/\d+")
-# `gh ... pr create` with any flags/whitespace between tokens, but never
-# across a command separator (`gh repo view && foo pr create` must not match).
-GH_PR_CREATE = re.compile(r"\bgh\b[^|;&\n]*?\bpr\s+create\b")
+# Quoted segments are stripped before matching so a search pattern like
+# grep "gh pr create" can never look like a PR creation.
+QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+# `gh ... pr create` only with `gh` at command position — start of string or
+# after a separator (&&, ;, |, $(, backtick, newline), optionally preceded by
+# env-var assignments — with flags allowed between tokens but never across a
+# separator (`gh repo view && foo pr create` must not match).
+GH_PR_CREATE = re.compile(
+    r"(?:^|[;&|`\n]|\$\()\s*(?:\w+=\S*\s+)*gh\b[^|;&\n]*?\bpr\s+create\b"
+)
+
+
+def is_pr_create(command: str) -> bool:
+    return bool(GH_PR_CREATE.search(QUOTED.sub(" ", command)))
 
 
 def main() -> None:
@@ -24,13 +35,18 @@ def main() -> None:
 
     tool_input = payload.get("tool_input") or {}
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
-    if not GH_PR_CREATE.search(command):
+    if not is_pr_create(command):
         return
 
     # Only arm the loop if a PR URL actually came back — a failed
-    # `gh pr create` produces no URL and should stay silent.
+    # `gh pr create` produces no URL and should stay silent. Scan stdout
+    # only when the response shape exposes it: gh prints the new PR's URL
+    # there, and stderr/other fields could echo unrelated PR URLs.
     response = payload.get("tool_response")
-    blob = response if isinstance(response, str) else json.dumps(response or {})
+    if isinstance(response, dict) and isinstance(response.get("stdout"), str):
+        blob = response["stdout"]
+    else:
+        blob = response if isinstance(response, str) else json.dumps(response or {})
     match = PR_URL.search(blob)
     if not match:
         return

@@ -12,6 +12,17 @@
             "command": "IN=$(cat); case \"$IN\" in *git*commit*|*\"gh pr\"*) if [ -z \"${CLAUDE_PLUGIN_ROOT:-}\" ]; then echo \"[memhub-flush] CLAUDE_PLUGIN_ROOT unset; cannot locate flush scripts, skipping\" >&2; elif printf %s \"$IN\" | python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/flush_prefilter.py\"; then printf %s \"$IN\" | uv run --with mcp python \"${CLAUDE_PLUGIN_ROOT}/scripts/flush_session.py\"; fi ;; esac"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 30,
+            "statusMessage": "MemHub: PR created — arming babysit loop",
+            "command": "IN=$(cat); case \"$IN\" in *\"gh pr create\"*) if [ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ]; then printf %s \"$IN\" | python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pr_babysit_trigger.py\"; fi ;; esac"
+          }
+        ]
       }
     ],
     "SessionEnd": [

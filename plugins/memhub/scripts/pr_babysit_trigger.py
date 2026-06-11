@@ -8,7 +8,10 @@ import json
 import re
 import sys
 
-PR_URL = re.compile(r"https://[^/\s\"\\]+/[^/\s\"\\]+/[^/\s\"\\]+/pull/\d+")
+PR_URL = re.compile(r"https?://[^/\s\"\\]+/[^/\s\"\\]+/[^/\s\"\\]+/pull/\d+")
+# `gh ... pr create` with any flags/whitespace between tokens, but never
+# across a command separator (`gh repo view && foo pr create` must not match).
+GH_PR_CREATE = re.compile(r"\bgh\b[^|;&\n]*?\bpr\s+create\b")
 
 
 def main() -> None:
@@ -21,7 +24,7 @@ def main() -> None:
 
     tool_input = payload.get("tool_input") or {}
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
-    if "gh pr create" not in command:
+    if not GH_PR_CREATE.search(command):
         return
 
     # Only arm the loop if a PR URL actually came back — a failed

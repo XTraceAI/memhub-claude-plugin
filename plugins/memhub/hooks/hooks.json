@@ -20,7 +20,7 @@
             "type": "command",
             "timeout": 30,
             "statusMessage": "MemHub: PR created — arming babysit loop",
-            "command": "IN=$(cat); case \"$IN\" in *\"gh pr create\"*) if [ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ]; then printf %s \"$IN\" | python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pr_babysit_trigger.py\"; fi ;; esac"
+            "command": "IN=$(cat); case \"$IN\" in *gh*pr*create*) if [ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ]; then printf %s \"$IN\" | python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pr_babysit_trigger.py\"; fi ;; esac"
           }
         ]
       }

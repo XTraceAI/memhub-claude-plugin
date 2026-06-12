@@ -47,8 +47,14 @@ already resolved.
      End the turn so the loop re-wakes; bots typically take a few minutes,
      so self-pace around 4–5 minutes (stay under the 5-minute cache window).
    - Clean = a pass that pushed nothing AND found no new findings AND no
-     required check is failing or pending on the head commit. First such
-     pass after any push → proceed to step 6.
+     required check is failing or pending on the head commit AND the bots
+     have had their review window: at least one bot review/comment exists
+     for the current head commit, OR ~20 minutes have passed since that
+     commit was pushed (its `committedDate` from
+     `gh pr view --json commits` vs now — review bots that are going to
+     comment usually do within ~20 minutes). Right after `gh pr create`
+     neither holds, so an immediate first pass can never end the loop.
+     First clean pass after any push → proceed to step 6.
    - Safety valve: findings still arriving after ~10 passes, or the same
      finding reopening repeatedly → stop looping, summarize the impasse to
      the user, and still do step 6 with what happened so far.

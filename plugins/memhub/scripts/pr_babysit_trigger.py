@@ -13,11 +13,16 @@ PR_URL = re.compile(r"https?://[^/\s\"\\]+/[^/\s\"\\]+/[^/\s\"\\]+/pull/\d+")
 # grep "gh pr create" can never look like a PR creation.
 QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
 # `gh ... pr create` only with `gh` at command position — start of string or
-# after a separator (&&, ;, |, $(, backtick, newline), optionally preceded by
-# env-var assignments — with flags allowed between tokens but never across a
+# after a separator (&&, ;, |, subshell paren, backtick, newline). Before
+# `gh`, only env-var assignments and common wrappers (env, sudo, nohup,
+# command, exec, timeout) with their flags/duration args are tolerated; any
+# other leading token (grep, rg, echo…) keeps the command from matching.
+# Flags are allowed between `gh` and `pr create` but never across a
 # separator (`gh repo view && foo pr create` must not match).
 GH_PR_CREATE = re.compile(
-    r"(?:^|[;&|`\n]|\$\()\s*(?:\w+=\S*\s+)*gh\b[^|;&\n]*?\bpr\s+create\b"
+    r"(?:^|[;&|`\n(]|\$\()\s*"
+    r"(?:(?:\w+=\S*|env|sudo|nohup|command|exec|timeout|--?[\w=:,.-]+|\d[\w.]*)\s+)*"
+    r"gh\b[^|;&\n]*?\bpr\s+create\b"
 )
 
 

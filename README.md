@@ -25,6 +25,8 @@ plugins/fleet/
 ├── .claude-plugin/plugin.json      # plugin manifest
 ├── hooks/hooks.json                # SessionStart/UserPromptSubmit/PostToolUse/SessionEnd
 ├── scripts/fleet_board.py          # one script, one subcommand per hook event
+├── scripts/fleet_start_launch.sh   # session launcher (tmux/iTerm/Terminal/headless)
+├── skills/start/                   # /fleet:start — decompose, provision, launch
 └── skills/status/                  # /fleet:status — pretty-print the board
 ```
 
@@ -133,6 +135,13 @@ agent with no server and no auth. Hooks keep it current:
 For a human-facing view, `/fleet:status` (also triggered by "what's the
 fleet doing?") pretty-prints the board: who's active where, what each agent
 is working on, last commits with age, and any file overlaps between agents.
+
+To *start* a fleet instead of assembling it by hand, `/fleet:start <task>`
+(v0.3) decomposes the task into 2–4 independent workstreams (confirming the
+split first), provisions a worktree + branch + kickoff brief per stream, and
+launches a real session in each — interactive tabs (tmux/iTerm/Terminal) or
+`--headless` detached runs. Launched sessions register on the board through
+the normal hooks, so coordination from there is automatic.
 
 Pairs with the memhub plugin: the board says *who is doing what right now*
 (seconds, one line each); the flush hook already lands every session's

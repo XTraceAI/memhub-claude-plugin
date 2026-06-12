@@ -53,10 +53,12 @@ if [ "$MODE" = "headless" ]; then
   exit 0
 fi
 
+LAUNCH_CMD="cd $(printf %q "$WT") && claude $(printf %q "$PROMPT")"
+
 if [ -n "${TMUX:-}" ]; then
   tmux new-window -c "$WT" -n "$(basename "$WT")" "claude $(printf %q "$PROMPT")"
   echo "tmux window opened for $WT"
-elif [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then
+elif command -v osascript >/dev/null 2>&1 && [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then
   osascript - "$WT" "$PROMPT" <<'EOF'
 on run argv
   set wt to item 1 of argv
@@ -77,7 +79,7 @@ on run argv
 end run
 EOF
   echo "iTerm tab opened for $WT"
-else
+elif command -v osascript >/dev/null 2>&1 && [ "$(uname)" = "Darwin" ]; then
   osascript - "$WT" "$PROMPT" <<'EOF'
 on run argv
   set wt to item 1 of argv
@@ -92,4 +94,20 @@ EOF
   if [ "${TERM_PROGRAM:-}" = "vscode" ]; then
     echo "note: VS Code's integrated terminal can't be scripted — fleet tabs open in Terminal.app instead" >&2
   fi
+elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v gnome-terminal >/dev/null 2>&1; then
+  gnome-terminal -- bash -c "$LAUNCH_CMD; exec bash"
+  echo "gnome-terminal window opened for $WT"
+elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v konsole >/dev/null 2>&1; then
+  nohup konsole -e bash -c "$LAUNCH_CMD; exec bash" >/dev/null 2>&1 &
+  echo "konsole window opened for $WT"
+elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v x-terminal-emulator >/dev/null 2>&1; then
+  nohup x-terminal-emulator -e bash -c "$LAUNCH_CMD; exec bash" >/dev/null 2>&1 &
+  echo "terminal window opened for $WT"
+else
+  # no scriptable terminal (e.g. headless Linux, SSH) — degrade gracefully
+  # instead of dying on a missing osascript under set -e
+  echo "no scriptable terminal available here — start this stream manually:" >&2
+  echo "  $LAUNCH_CMD" >&2
+  echo "(or re-run in headless mode)" >&2
+  exit 0
 fi

@@ -51,8 +51,12 @@ Do exactly this:
      <tab|headless>
    ```
 
-   - `tab` (default): opens an interactive tmux window / iTerm tab / Terminal
-     window per stream. Opening windows on the user's screen is visible and
+   - `tab` (default): opens an interactive session per stream — tmux window,
+     iTerm tab, Terminal.app window, or a Linux terminal emulator
+     (gnome-terminal/konsole/x-terminal-emulator) when a display exists. With
+     no scriptable terminal (headless Linux, SSH) the helper prints the
+     manual launch command and exits 0 — relay it to the user or offer
+     headless mode. Opening windows on the user's screen is visible and
      loud — the step-2 confirmation covers it, but if the user seemed
      hesitant, re-ask before the first launch.
    - `headless`: detached `claude -p` per stream; output in each worktree's

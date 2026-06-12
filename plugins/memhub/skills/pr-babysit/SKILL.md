@@ -1,14 +1,14 @@
 ---
 description: Use when a PR should be babysat to green — poll its review bots (Cursor bugbot, OpenAI Codex) and CI, fix the real findings, push, and when clean save the whole fixing process to the repo's MemHub room (e.g. "babysit this PR", "watch PR 14 and fix the bot findings", or auto-armed by the memhub hook right after `gh pr create`). Designed as the body of a self-paced /loop — one poll→fix→push pass per invocation; the final pass writes the memory and ends the loop.
 argument-hint: [pr-number-or-url]
-allowed-tools: mcp__memhub-staging__list_context_bases, mcp__memhub-staging__create_context_base, mcp__memhub-staging__add_memory, Bash, Read, Edit, Write, Glob, Grep
+allowed-tools: mcp__memhub-staging__list_context_bases, mcp__memhub-staging__create_context_base, mcp__memhub-staging__import_conversation, Bash, Read, Edit, Write, Glob, Grep
 ---
 
 Babysit a pull request until its review bots are satisfied, then bank what
 was learned into team memory. Each invocation is ONE pass; state between
-passes (handled comment ids, the room id, the MemHub conversation id, pass
-counters) lives in the loop's conversation context — re-derive nothing that
-an earlier pass already resolved.
+passes (handled comment ids, the room id, pass counters) lives in the
+loop's conversation context — re-derive nothing that an earlier pass
+already resolved.
 
 ## Every pass
 
@@ -55,20 +55,23 @@ an earlier pass already resolved.
 
 ## Final pass — save the process to MemHub, then end the loop
 
-Write the fixing process into the repo's room via `add_memory`, one
-conversation for the whole babysit (pass the `conversation_id` returned by
-the first call into every later call):
+Ship the fixing process into the repo's room with ONE `import_conversation`
+call. The batch ingest behind it generates a session gist — a structured
+episode folding the decisions and outcome — so the gist is the synthesis
+layer; do NOT hand-write a long summary on top of it.
 
-- **One turn per finding**: `user_message` = bot name, the finding verbatim
-  (trimmed), `file:line`, PR/commit refs; `assistant_message` = what was
-  done — the fix in one or two sentences plus the commit SHA, or the
-  rejection rationale for false positives.
-- **One closing summary turn**: PR url and title, branch, findings per bot
-  and accepted/rejected counts, the bug classes that came up, and anything
-  genuinely useful for future context — recurring mistake patterns in this
-  repo, each bot's false-positive tendencies observed here, gotchas hit
-  while fixing. Skip boilerplate; a future session should be able to read
-  this and know what this PR's review cycle taught us.
+- `messages`: plain-chat list, one `{role: user}` / `{role: assistant}`
+  pair per finding — user = bot name, the finding verbatim (trimmed),
+  `file:line`, PR/commit refs; assistant = what was done — the fix in one
+  or two sentences plus the commit SHA, or the rejection rationale for
+  false positives. Close with one short pair giving the outcome: PR url
+  and title, branch, findings per bot with accepted/rejected counts, and
+  any repo-specific gotcha or bot false-positive tendency observed — one
+  line each, no boilerplate.
+- `conversation_id`: `pr-babysit-<owner>-<repo>-<n>` — deterministic, so
+  re-running a babysit on the same PR dedups instead of duplicating.
+- `title`: `PR babysit — <owner>/<repo>#<n>`.
+- `context_base_id`: the repo room id from step 2.
 
 Then report to the user (PR state, what was fixed, where the memory went)
 and END the loop — do not schedule another wake-up.

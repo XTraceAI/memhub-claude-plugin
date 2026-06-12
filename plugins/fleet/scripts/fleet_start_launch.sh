@@ -20,14 +20,32 @@ MODE="${3:-tab}"
 
 [ -d "$WT" ] || { echo "worktree not found: $WT" >&2; exit 1; }
 
+# Headless sessions are non-interactive: they cannot answer permission
+# prompts, so without pre-granted permissions a stream stalls right after
+# reading its brief. Default: auto-accept file edits + git commands, which
+# covers edit-commit-push workstreams while still gating everything else.
+# Override with FLEET_HEADLESS_FLAGS (whitespace-split; e.g. set it to
+# "--dangerously-skip-permissions" for fully autonomous streams — that
+# bypasses ALL gating, so it's an explicit user choice, never the default).
+if [ -n "${FLEET_HEADLESS_FLAGS:-}" ]; then
+  # shellcheck disable=SC2206
+  HEADLESS_FLAGS=( ${FLEET_HEADLESS_FLAGS} )
+else
+  HEADLESS_FLAGS=( --permission-mode acceptEdits --allowedTools 'Bash(git:*)' )
+fi
+
 if [ "${FLEET_DRY:-}" = "1" ]; then
-  echo "DRY: mode=$MODE worktree=$WT prompt=${PROMPT:0:80}..."
+  if [ "$MODE" = "headless" ]; then
+    echo "DRY: mode=$MODE worktree=$WT flags=${HEADLESS_FLAGS[*]} prompt=${PROMPT:0:80}..."
+  else
+    echo "DRY: mode=$MODE worktree=$WT prompt=${PROMPT:0:80}..."
+  fi
   exit 0
 fi
 
 if [ "$MODE" = "headless" ]; then
-  (cd "$WT" && nohup claude -p "$PROMPT" > .fleet-headless.log 2>&1 &)
-  echo "headless session launched in $WT (log: .fleet-headless.log)"
+  (cd "$WT" && nohup claude -p "${HEADLESS_FLAGS[@]}" "$PROMPT" > .fleet-headless.log 2>&1 &)
+  echo "headless session launched in $WT (log: .fleet-headless.log, flags: ${HEADLESS_FLAGS[*]})"
   exit 0
 fi
 

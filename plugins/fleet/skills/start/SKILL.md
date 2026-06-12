@@ -57,6 +57,13 @@ Do exactly this:
      hesitant, re-ask before the first launch.
    - `headless`: detached `claude -p` per stream; output in each worktree's
      `.fleet-headless.log`. Use when the user said headless / fire-and-forget.
+     Headless runs can't answer permission prompts, so the launcher defaults
+     to `--permission-mode acceptEdits --allowedTools 'Bash(git:*)'` (edits +
+     git work unattended; everything else stays gated). If a stream needs
+     more (test runners, package installs), tell the user and let THEM choose
+     to set `FLEET_HEADLESS_FLAGS` — e.g. extra `--allowedTools` rules, or
+     `--dangerously-skip-permissions` for full autonomy. Never set the bypass
+     flag on your own.
    - Each launched session registers itself on the fleet board through the
      plugin's own hooks — do not write to the board from here.
 

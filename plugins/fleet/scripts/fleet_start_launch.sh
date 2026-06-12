@@ -44,7 +44,11 @@ if [ "${FLEET_DRY:-}" = "1" ]; then
 fi
 
 if [ "$MODE" = "headless" ]; then
-  (cd "$WT" && nohup claude -p "${HEADLESS_FLAGS[@]}" "$PROMPT" > .fleet-headless.log 2>&1 &)
+  # PROMPT must come before the flags: variadic options like --allowedTools
+  # swallow a trailing positional as another value, and claude then dies
+  # with "Input must be provided either through stdin or as a prompt
+  # argument" (verified against claude CLI 2.x).
+  (cd "$WT" && nohup claude -p "$PROMPT" "${HEADLESS_FLAGS[@]}" > .fleet-headless.log 2>&1 &)
   echo "headless session launched in $WT (log: .fleet-headless.log, flags: ${HEADLESS_FLAGS[*]})"
   exit 0
 fi

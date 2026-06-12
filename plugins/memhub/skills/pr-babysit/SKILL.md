@@ -61,23 +61,50 @@ already resolved.
 
 ## Final pass — save the process to MemHub, then end the loop
 
-Ship the fixing process into the repo's room with ONE `import_conversation`
-call. The batch ingest behind it generates a session gist — a structured
-episode folding the decisions and outcome — so the gist is the synthesis
-layer; do NOT hand-write a long summary on top of it.
+Ship the fixing process into the repo's room by importing THIS SESSION'S
+transcript through the **agentic** ingestion path. The session gist — the
+structured episode folding goals, decisions, errors, and outcome — is
+composed ONLY on the agentic path (Claude Code `.jsonl` transcripts);
+hand-built plain-chat `messages` route to the regular bulk importer, where
+gist composition is off, and produce loose per-batch episodes instead. The
+transcript already contains every finding read, every accept/reject
+judgment, and every fix commit — do NOT hand-write `{role, content}` pairs
+on top of it.
 
-- `messages`: plain-chat list, one `{role: user}` / `{role: assistant}`
-  pair per finding — user = bot name, the finding verbatim (trimmed),
-  `file:line`, PR/commit refs; assistant = what was done — the fix in one
-  or two sentences plus the commit SHA, or the rejection rationale for
-  false positives. Close with one short pair giving the outcome: PR url
-  and title, branch, findings per bot with accepted/rejected counts, and
-  any repo-specific gotcha or bot false-positive tendency observed — one
-  line each, no boilerplate.
-- `conversation_id`: `pr-babysit-<owner>-<repo>-<n>` — deterministic, so
-  re-running a babysit on the same PR dedups instead of duplicating.
-- `title`: `PR babysit — <owner>/<repo>#<n>`.
-- `context_base_id`: the repo room id from step 2.
+1. **Resolve this session's transcript**: the most recently modified
+   `.jsonl` sitting DIRECTLY inside the `~/.claude/projects/` directory
+   matching the current working directory (top level only — `.jsonl` files
+   in subdirectories are subagent/workflow transcripts, not sessions).
+2. **Import via the helper script** — never call `import_conversation`
+   with transcript content yourself; the script handles any size and
+   auto-chunks huge sessions:
+
+   ```bash
+   uv run --with mcp python "${CLAUDE_PLUGIN_ROOT}/scripts/import_session.py" \
+     --session "<transcript-path>" \
+     --conversation-id "pr-babysit-<owner>-<repo>-<n>" \
+     --title "PR babysit — <owner>/<repo>#<n>" \
+     --context-base-id "<repo-room-id-from-step-2>"
+   ```
+
+   The deterministic `--conversation-id` keeps re-runs incremental: a later
+   babysit of the same PR folds the gist forward instead of duplicating.
+3. **Verify the path**: the script's output should report `path:
+   "agentic"`. If it reports `"regular"`, the transcript resolution picked
+   a wrong file — stop and re-resolve rather than accepting a gist-less
+   import.
+4. Add one short top-level outcome note IN THE REPORT to the user (not as
+   extra imported messages): PR url and title, branch, findings per bot
+   with accepted/rejected counts, and any repo-specific gotcha or bot
+   false-positive tendency observed.
+
+Fallback: if no transcript file can be found (e.g. a headless runner with
+no `~/.claude/projects/` dir), fall back to ONE `import_conversation` call
+with plain-chat pairs per finding (user = bot name + finding verbatim +
+`file:line` + PR/commit refs; assistant = the fix + commit SHA, or the
+rejection rationale), same `conversation_id`/`title`/`context_base_id` —
+and tell the user this path produces episodes and facts but NO session
+gist.
 
 Then report to the user (PR state, what was fixed, where the memory went)
 and END the loop — do not schedule another wake-up.

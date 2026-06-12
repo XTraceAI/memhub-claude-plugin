@@ -44,14 +44,20 @@ def main() -> None:
         return
 
     # Only arm the loop if a PR URL actually came back — a failed
-    # `gh pr create` produces no URL and should stay silent. Scan stdout
-    # only when the response shape exposes it: gh prints the new PR's URL
-    # there, and stderr/other fields could echo unrelated PR URLs.
+    # `gh pr create` produces no URL and should stay silent. gh prints the
+    # new PR's URL to stdout; stderr and other fields can echo unrelated or
+    # pre-existing PR URLs (e.g. "a pull request ... already exists"), so a
+    # dict response without a string stdout yields nothing rather than a
+    # serialized-whole-dict scan. A bare-string response has no field
+    # structure to respect, so it is scanned as-is.
     response = payload.get("tool_response")
-    if isinstance(response, dict) and isinstance(response.get("stdout"), str):
-        blob = response["stdout"]
+    if isinstance(response, dict):
+        stdout = response.get("stdout")
+        blob = stdout if isinstance(stdout, str) else ""
+    elif isinstance(response, str):
+        blob = response
     else:
-        blob = response if isinstance(response, str) else json.dumps(response or {})
+        blob = ""
     match = PR_URL.search(blob)
     if not match:
         return

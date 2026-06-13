@@ -75,6 +75,14 @@ on top of it.
    `.jsonl` sitting DIRECTLY inside the `~/.claude/projects/` directory
    matching the current working directory (top level only — `.jsonl` files
    in subdirectories are subagent/workflow transcripts, not sessions).
+
+   **Mixed-session check**: if this session visibly spanned more than one
+   repo (you changed working directories into another checkout, committed
+   to another repo, or babysat alongside unrelated work elsewhere), the
+   import still lands the WHOLE transcript in THIS repo's room — the other
+   repos' work included, while their rooms get none of it. Do NOT try to
+   slice the transcript; import as-is and say exactly that in the report
+   (step 4) so nobody mistakes the room for repo-pure memory.
 2. **Import via the helper script** — never call `import_conversation`
    with transcript content yourself; the script handles any size and
    auto-chunks huge sessions:
@@ -89,6 +97,14 @@ on top of it.
 
    The deterministic `--conversation-id` keeps re-runs incremental: a later
    babysit of the same PR folds the gist forward instead of duplicating.
+
+   The script exits non-zero with the server's error on stderr when an
+   import is rejected — that is a FAILED save, never report it as queued.
+   If the error says the context base can't be found or accessed, the
+   cached room id went stale mid-loop: re-resolve the room ONCE (re-run
+   "Every pass" step 2 — exact-name match in `list_context_bases`, create
+   if missing) and retry the import with the fresh id. Fails again →
+   report the error in step 4 instead of retrying further.
 3. **Verify the path**: the script's output should report `path:
    "agentic"`. If it reports `"regular"`, the transcript resolution picked
    a wrong file — stop and re-resolve rather than accepting a gist-less

@@ -159,6 +159,19 @@ def unwrap(result) -> dict:
     return {"_raw": str(result)}
 
 
+def call_error(result, payload: dict) -> str | None:
+    """The server-side failure text of a tool call, or None on success.
+
+    Tool exceptions arrive as ``CallToolResult.isError`` with the message in
+    the content blocks — ``unwrap`` can't distinguish that from a successful
+    payload, so callers must check this BEFORE trusting the dict.
+    """
+    if getattr(result, "isError", False):
+        return str(payload.get("_raw") or payload.get("error")
+                   or json.dumps(payload))
+    return None
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser(description="Import a Claude Code session into MemHub.")
     ap.add_argument("--session", required=True,
@@ -233,7 +246,21 @@ async def main() -> int:
                 if len(slices) > 1:
                     print(f"--- slice {i}/{len(slices)}: {len(sl)} records ---")
                 res = await s.call_tool("import_conversation", arguments=call_args)
-                print(json.dumps(unwrap(res), indent=2))
+                payload = unwrap(res)
+                print(json.dumps(payload, indent=2))
+                err = call_error(res, payload)
+                if err:
+                    # No success epilogue — a headless caller (the pr-babysit
+                    # loop) must see this as a failed save, not "Queued".
+                    label = (f"slice {i}/{len(slices)}" if len(slices) > 1
+                             else "import")
+                    print(f"ERROR: {label} failed: {err}", file=sys.stderr)
+                    if i > 1:
+                        print(f"NOTE: slices 1..{i - 1} were already queued; "
+                              "re-running after fixing the error is safe "
+                              "(the server watermark skips them).",
+                              file=sys.stderr)
+                    return 1
                 if i < len(slices):
                     print(f"waiting for slice {i} extraction "
                           "(gist appear/fold-forward) before next slice ...")

@@ -23,12 +23,12 @@ Self-check:  uv run --with mcp python _memhub_auth.py
 from __future__ import annotations
 
 import asyncio
+import base64
 import errno
 import json
 import os
 import threading
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
@@ -266,6 +266,25 @@ def _make_callback_handler(port: int):
 _REFRESH_SKEW_S = 300
 
 
+def _access_token_expiry(access_token: str) -> float | None:
+    """The ``exp`` (epoch seconds) from a JWT access token's payload, or None
+    if it isn't a decodable JWT / carries no ``exp``.
+
+    We only READ the claim to decide whether to refresh — the resource server
+    still does the real signature/expiry validation — so no verification key is
+    needed. Using the token's own ``exp`` makes the staleness check immune to
+    filesystem mtime games (a cp / restore / sync / editor touch that would
+    otherwise make an expired token look freshly-issued).
+    """
+    try:
+        payload = access_token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)  # restore base64url padding
+        exp = json.loads(base64.urlsafe_b64decode(payload)).get("exp")
+        return float(exp) if exp is not None else None
+    except Exception:  # noqa: BLE001 — opaque/non-JWT token → treat as unknown
+        return None
+
+
 def _auth_token_endpoint() -> str | None:
     """The auth server's real ``token_endpoint`` (Auth0), discovered from the
     ``oauth.authServerMetadataUrl`` in the plugin's ``.mcp.json``.
@@ -324,18 +343,14 @@ def _refresh_cached_token_if_stale(url: str) -> None:
     if not refresh_token:
         return
 
-    # Staleness gate: the cache is rewritten on every issuance, so the file
-    # mtime is a reliable proxy for "issued at". Skip the network round-trip
-    # while the token is still comfortably valid. If expires_in is absent
-    # (older cache shape), fall through and refresh unconditionally.
-    expires_in = cached.get("expires_in")
-    if isinstance(expires_in, (int, float)):
-        try:
-            issued_at = path.stat().st_mtime
-        except OSError:
-            issued_at = 0.0
-        if time.time() < issued_at + expires_in - _REFRESH_SKEW_S:
-            return  # still fresh — let the SDK use the cached token as-is
+    # Staleness gate, off the token's OWN ``exp`` claim (not file mtime, which
+    # a cp/restore/sync can reset and make an expired token look fresh). Skip
+    # the network round-trip while the token is still comfortably valid; if
+    # exp can't be read (opaque token / no claim), fall through and refresh.
+    access_token = cached.get("access_token") or ""
+    exp = _access_token_expiry(access_token)
+    if exp is not None and time.time() < exp - _REFRESH_SKEW_S:
+        return  # still valid per its own exp — let the SDK use it as-is
 
     token_endpoint = _auth_token_endpoint()
     client_id = _plugin_mcp_config().get("oauth", {}).get("clientId")

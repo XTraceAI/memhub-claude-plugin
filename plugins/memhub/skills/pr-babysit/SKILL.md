@@ -1,7 +1,7 @@
 ---
 description: Use when a PR should be babysat to green — poll its review bots (Cursor bugbot, OpenAI Codex) and CI, fix the real findings, push, and when clean save the whole fixing process to the repo's MemHub room (e.g. "babysit this PR", "watch PR 14 and fix the bot findings", or auto-armed by the memhub hook right after `gh pr create`). Designed as the body of a self-paced /loop — one poll→fix→push pass per invocation; the final pass writes the memory and ends the loop.
 argument-hint: [pr-number-or-url]
-allowed-tools: mcp__memhub-staging__list_context_bases, mcp__memhub-staging__create_context_base, mcp__memhub-staging__import_conversation, Bash, Read, Edit, Write, Glob, Grep
+allowed-tools: mcp__memhub-staging__list_agent_brains, mcp__memhub-staging__create_agent_brain, mcp__memhub-staging__import_conversation, Bash, Read, Edit, Write, Glob, Grep
 ---
 
 Babysit a pull request until its review bots are satisfied, then bank what
@@ -19,8 +19,8 @@ already resolved.
    Same convention as the spec skill: name `Repo: <org>/<name>` from
    `git remote get-url origin` (host and `.git` stripped); no remote →
    `Repo: ` + basename of `git rev-parse --show-toplevel`. Match it EXACTLY
-   in `list_context_bases` — a teammate may have created it; use theirs.
-   No match → `create_context_base` (omit `workspace_id`).
+   in `list_agent_brains` — a teammate may have created it; use theirs.
+   No match → `create_agent_brain` (omit `workspace_id`).
 3. **Collect findings** (`{owner}/{repo}` and `{n}` from step 1):
    - `gh pr view <n> --json state,mergeable,statusCheckRollup`
    - `gh api repos/{owner}/{repo}/pulls/{n}/comments --paginate` (inline
@@ -92,7 +92,7 @@ on top of it.
      --session "<transcript-path>" \
      --conversation-id "pr-babysit-<owner>-<repo>-<n>" \
      --title "PR babysit — <owner>/<repo>#<n>" \
-     --context-base-id "<repo-room-id-from-step-2>"
+     --agent-brain-id "<repo-room-id-from-step-2>"
    ```
 
    The deterministic `--conversation-id` keeps re-runs incremental: a later
@@ -100,9 +100,9 @@ on top of it.
 
    The script exits non-zero with the server's error on stderr when an
    import is rejected — that is a FAILED save, never report it as queued.
-   If the error says the context base can't be found or accessed, the
+   If the error says the agent brain can't be found or accessed, the
    cached room id went stale mid-loop: re-resolve the room ONCE (re-run
-   "Every pass" step 2 — exact-name match in `list_context_bases`, create
+   "Every pass" step 2 — exact-name match in `list_agent_brains`, create
    if missing) and retry the import with the fresh id. Fails again →
    report the error in step 4 instead of retrying further.
 3. **Verify the path**: the script's output should report `path:
@@ -118,7 +118,7 @@ Fallback: if no transcript file can be found (e.g. a headless runner with
 no `~/.claude/projects/` dir), fall back to ONE `import_conversation` call
 with plain-chat pairs per finding (user = bot name + finding verbatim +
 `file:line` + PR/commit refs; assistant = the fix + commit SHA, or the
-rejection rationale), same `conversation_id`/`title`/`context_base_id` —
+rejection rationale), same `conversation_id`/`title`/`agent_brain_id` —
 and tell the user this path produces episodes and facts but NO session
 gist.
 

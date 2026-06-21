@@ -70,7 +70,7 @@ def main() -> None:
         f'no interval and the prompt "/memhub:pr-babysit {url}". Each loop pass '
         "polls the PR's review bots (Cursor bugbot, OpenAI Codex) and CI, fixes "
         "real findings, pushes, and when the PR is clean saves the whole fixing "
-        "process to the repo's MemHub context base and ends the loop. Tell the "
+        "process to the repo's MemHub agent brain and ends the loop. Tell the "
         "user the babysit loop is running and that saying 'stop the loop' ends it."
     )
     print(

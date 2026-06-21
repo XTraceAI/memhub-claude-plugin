@@ -110,13 +110,13 @@ def _slices(records: list[dict], chunk_bytes: int) -> list[list[dict]]:
     return out
 
 
-async def _gist_hash(session, context_base_id: str | None) -> str | None:
+async def _gist_hash(session, agent_brain_id: str | None) -> str | None:
     """Content hash of the session gist (episode starting '## GOAL'), or None."""
     import hashlib
     args = {"query": "GOAL INTENT OUTCOME ROUTE RESUME STATE next step",
             "memory_type": "episodes", "top_k": 5}
-    if context_base_id:
-        args["context_base_id"] = context_base_id
+    if agent_brain_id:
+        args["agent_brain_id"] = agent_brain_id
     try:
         res = await session.call_tool("search_memory", arguments=args)
         d = unwrap(res)
@@ -129,7 +129,7 @@ async def _gist_hash(session, context_base_id: str | None) -> str | None:
     return None
 
 
-async def _wait_gist_change(session, context_base_id, prev_hash, timeout=1800):
+async def _wait_gist_change(session, agent_brain_id, prev_hash, timeout=1800):
     """Block until the gist appears (prev None) or its content changes
     (fold-forward happened) — the end-of-slice extraction signal. On timeout,
     warn and proceed (the next slice still imports safely; worst case the
@@ -138,7 +138,7 @@ async def _wait_gist_change(session, context_base_id, prev_hash, timeout=1800):
     deadline = _time.monotonic() + timeout
     while _time.monotonic() < deadline:
         await asyncio.sleep(20)
-        h = await _gist_hash(session, context_base_id)
+        h = await _gist_hash(session, agent_brain_id)
         if h is not None and h != prev_hash:
             print("  slice extraction complete (gist updated)")
             return h
@@ -179,8 +179,8 @@ async def main() -> int:
     ap.add_argument("--conversation-id", default=None,
                     help="override the conversation id (default: session id, for incremental dedup)")
     ap.add_argument("--title", default=None)
-    ap.add_argument("--context-base-id", default=None,
-                    help="route the extracted facts/episodes into a context base "
+    ap.add_argument("--agent-brain-id", default=None,
+                    help="route the extracted facts/episodes into an agent brain "
                          "(isolated, shareable) instead of raw workspace memory")
     ap.add_argument("--url", default=None)
     ap.add_argument("--chunk-bytes", type=int, default=3_500_000,
@@ -219,8 +219,8 @@ async def main() -> int:
     print(f"records         : {len(records)}   ({size:,} bytes ≈ {size // 4:,} tokens)")
     print(f"conversation_id : {conv_id}")
     print(f"endpoint        : {url}")
-    if args.context_base_id:
-        print(f"context base    : {args.context_base_id}")
+    if args.agent_brain_id:
+        print(f"agent brain     : {args.agent_brain_id}")
     print("-" * 56)
 
     if len(slices) > 1:
@@ -232,7 +232,7 @@ async def main() -> int:
     async with streamablehttp_client(url, headers=headers, auth=auth) as (r, w, _):
         async with ClientSession(r, w) as s:
             await s.initialize()
-            prev_gist_hash = await _gist_hash(s, args.context_base_id)
+            prev_gist_hash = await _gist_hash(s, args.agent_brain_id)
             for i, sl in enumerate(slices, 1):
                 call_args: dict = {
                     "messages": sl,
@@ -241,8 +241,8 @@ async def main() -> int:
                 }
                 if args.title:
                     call_args["title"] = args.title
-                if args.context_base_id:
-                    call_args["context_base_id"] = args.context_base_id
+                if args.agent_brain_id:
+                    call_args["agent_brain_id"] = args.agent_brain_id
                 if len(slices) > 1:
                     print(f"--- slice {i}/{len(slices)}: {len(sl)} records ---")
                 res = await s.call_tool("import_conversation", arguments=call_args)
@@ -265,7 +265,7 @@ async def main() -> int:
                     print(f"waiting for slice {i} extraction "
                           "(gist appear/fold-forward) before next slice ...")
                     prev_gist_hash = await _wait_gist_change(
-                        s, args.context_base_id, prev_gist_hash,
+                        s, args.agent_brain_id, prev_gist_hash,
                         timeout=args.slice_timeout,
                     )
     print("-" * 56)

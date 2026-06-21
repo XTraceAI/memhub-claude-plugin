@@ -1,12 +1,12 @@
 ---
-description: Use when the user wants spec-driven development backed by team memory — create, revise, drift-check, or report on a spec held in MemHub (e.g. "start a spec for X", "save this as the team spec", "revise the spec", "did the spec change under me?", "what's the status of the retry-policy spec?"). Specs are versioned artifacts in the repo's shared context base; every revision carries a rationale and is diffable.
+description: Use when the user wants spec-driven development backed by team memory — create, revise, drift-check, or report on a spec held in MemHub (e.g. "start a spec for X", "save this as the team spec", "revise the spec", "did the spec change under me?", "what's the status of the retry-policy spec?"). Specs are versioned artifacts in the repo's shared agent brain; every revision carries a rationale and is diffable.
 argument-hint: <init|revise|check|status> [file|topic] [...]
-allowed-tools: mcp__memhub-staging__search_memory, mcp__memhub-staging__get_artifact, mcp__memhub-staging__get_artifact_lineage, mcp__memhub-staging__diff_artifact_versions, mcp__memhub-staging__list_context_bases, mcp__memhub-staging__create_context_base, mcp__memhub-staging__share_context_base, mcp__memhub-staging__list_teammates, mcp__memhub-staging__list_tags, Bash
+allowed-tools: mcp__memhub-staging__search_memory, mcp__memhub-staging__get_artifact, mcp__memhub-staging__get_artifact_lineage, mcp__memhub-staging__diff_artifact_versions, mcp__memhub-staging__list_agent_brains, mcp__memhub-staging__create_agent_brain, mcp__memhub-staging__share_agent_brain, mcp__memhub-staging__list_teammates, mcp__memhub-staging__list_tags, Bash
 ---
 
 Run spec-driven development on top of MemHub. The model:
 
-- **One context base per repo** — the repo's shared room. Its exact name is
+- **One agent brain per repo** — the repo's shared room. Its exact name is
   derived from the git remote: `Repo: <org>/<name>` (from
   `git remote get-url origin`, host and `.git` stripped — e.g.
   `Repo: XTraceAI/memhub-claude-plugin`); no remote → `Repo: ` + basename of
@@ -39,7 +39,7 @@ File uploads ALWAYS go through the helper script (never call the
 ```bash
 uv run --with mcp python "${CLAUDE_PLUGIN_ROOT}/scripts/save_artifact.py" \
   --file "<path>" --name "Spec: <title>" --type spec \
-  --context-base-id "<repo-cb-id>" --tags "spec,spec:<slug>,path:<repo-relative-path>" \
+  --agent-brain-id "<repo-ab-id>" --tags "spec,spec:<slug>,path:<repo-relative-path>" \
   [--parent-id "<latest-version-id>"] [--rationale "<why>"]
 ```
 
@@ -50,12 +50,12 @@ said (creating → init, editing → revise, "did it change" → check, "where a
 we" → status) and treat all of `$ARGUMENTS` as its arguments.
 
 Every subcommand starts by **resolving the repo's room**: derive the name as
-above, then match it EXACTLY in `list_context_bases` — it may be one a
+above, then match it EXACTLY in `list_agent_brains` — it may be one a
 teammate created and shared with you; use theirs rather than creating a
-duplicate. Only `init` creates it when missing (`create_context_base`, omit
+duplicate. Only `init` creates it when missing (`create_agent_brain`, omit
 `workspace_id` — you need creator access to share it); the other subcommands
-stop and point at init if no room exists. Not a git repo → ask which context
-base to use.
+stop and point at init if no room exists. Not a git repo → ask which agent
+brain to use.
 
 ## init `[file-path | title...] [for <teammates>]`
 
@@ -70,7 +70,7 @@ base to use.
 2. Resolve the repo's room; create it only if no exact-name match exists.
 3. Check whether THIS spec already has a lineage there: `search_memory` with
    `memory_type: "artifacts"`, `tags: ["spec:<slug>"]`, and the room's
-   `context_base_id`. A hit → STOP the init flow and run the **revise**
+   `agent_brain_id`. A hit → STOP the init flow and run the **revise**
    steps instead (`--parent-id` the newest version, rationale required) —
    uploading without a parent would create a second root artifact and break
    check/revise diffs. Any `for <teammates>` sharing still applies (step 5).
@@ -80,20 +80,20 @@ base to use.
    `docs/specs/<slug>.md` you wrote; never an absolute path.
 5. If the user named teammates ("for Alice and Bob"), resolve each via
    `list_teammates` (case-insensitive; ambiguous → show candidates and ask,
-   never guess between two people) and `share_context_base` with each
+   never guess between two people) and `share_agent_brain` with each
    `user_id`. Tell the user this opens the repo's WHOLE room — every spec
    and imported session in it, now and future — not just this spec. Nobody
    named → skip; note it may already be shared from an earlier spec.
 6. Report: artifact id, room name, file path, the `spec:<slug>` tag, who can
    see it, and the line teammates send their agent verbatim:
 
-   > Ask your agent: *search the "Repo: <org>/<name>" context base in
+   > Ask your agent: *search the "Repo: <org>/<name>" agent brain in
    > memhub for "<title>"*
 
 ## revise `[file-path] [rationale...]`
 
 1. Resolve the room, then the spec inside it: `search_memory` with
-   `memory_type: "artifacts"`, the room's `context_base_id`, and
+   `memory_type: "artifacts"`, the room's `agent_brain_id`, and
    `tags: ["spec:<slug>"]` if the slug is known from context, else
    `tags: ["spec"]` plus a query for the topic. Several candidates → ask.
 2. `get_artifact_lineage` on it; the NEWEST version's id is the
@@ -167,10 +167,10 @@ title naming the spec:
 
 ```bash
 uv run --with mcp python "${CLAUDE_PLUGIN_ROOT}/scripts/import_session.py" \
-  --session "<session-id-or-path>" --context-base-id "<repo-cb-id>" \
+  --session "<session-id-or-path>" --agent-brain-id "<repo-ab-id>" \
   --conversation-id "$(uuidgen)" --title "Spec: <title> — <what was built>"
 ```
 
 Plain-English output throughout; surface ids only where the user needs them
-(artifact id, context base id for scripts). On first ever script run the
+(artifact id, agent brain id for scripts). On first ever script run the
 browser may open once for OAuth approval — expected, not an error.

@@ -1,7 +1,7 @@
 ---
 description: Use when the user asks what the team knows, decided, discussed, or saved about a topic, or wants to check MemHub/team memory (e.g. "what do we know about X", "did we decide on Y", "search memhub for Z", "is there a spec for W"). Read-only — searches facts, episodes, artifacts, and documents.
 argument-hint: <what to look for>
-allowed-tools: mcp__memhub-staging__search_memory, mcp__memhub-staging__list_context_bases, mcp__memhub-staging__list_tags
+allowed-tools: mcp__memhub-staging__search_memory, mcp__memhub-staging__list_agent_brains, mcp__memhub-staging__list_tags
 ---
 
 Search MemHub team memory and report what it holds about the user's topic.
@@ -20,8 +20,8 @@ Do exactly this:
      ingested files.
    - `top_k`: raise from the default 8 (max 50) when the user wants everything
      on a topic.
-   - `context_base_id`: only when the user names a specific context base —
-     resolve it via `list_context_bases` first. Omit to search their own
+   - `agent_brain_id`: only when the user names a specific agent brain —
+     resolve it via `list_agent_brains` first. Omit to search their own
      workspace memory.
    - `tags` (+ `match`: `"all"`/`"any"`): narrows to artifacts carrying the
      tag(s) — check the vocabulary with `list_tags` first. Note that a tag

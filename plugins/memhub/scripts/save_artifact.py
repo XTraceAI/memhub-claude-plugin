@@ -12,7 +12,7 @@ else a one-time browser approval. No memhub-cli required.
 Run (mcp SDK pulled ephemerally by uv):
     uv run --with mcp python scripts/save_artifact.py \
         --file spec.md --name "Retry Policy Spec" --type spec \
-        [--context-base-id <id>] [--parent-id <id>] [--rationale "..."] \
+        [--agent-brain-id <id>] [--parent-id <id>] [--rationale "..."] \
         [--tags a,b]
 
     # or pipe terminal output straight in:
@@ -58,7 +58,7 @@ async def main() -> int:
     src.add_argument("--stdin", action="store_true", help="read body from stdin")
     ap.add_argument("--name", required=True, help="artifact title (re-using a name versions it)")
     ap.add_argument("--type", default="document", help="artifact_type (spec/design_doc/runbook/...)")
-    ap.add_argument("--context-base-id", default=None)
+    ap.add_argument("--agent-brain-id", default=None)
     ap.add_argument("--parent-id", default=None, help="version an existing artifact by id")
     ap.add_argument("--rationale", default=None, help="why this version supersedes the last")
     ap.add_argument("--tags", default=None, help="comma-separated tags")
@@ -74,8 +74,8 @@ async def main() -> int:
         return 2
 
     call_args: dict = {"name": args.name, "content": content, "artifact_type": args.type}
-    if args.context_base_id:
-        call_args["context_base_id"] = args.context_base_id
+    if args.agent_brain_id:
+        call_args["agent_brain_id"] = args.agent_brain_id
     if args.parent_id:
         call_args["parent_id"] = args.parent_id
     if args.rationale:

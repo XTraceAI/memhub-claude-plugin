@@ -29,8 +29,8 @@ Do exactly this:
      --file "<path>" --name "<name>" --type "<type>"
    ```
 
-   Optional flags when relevant: `--context-base-id <id>` to save into a context
-   base, `--parent-id <id>` to version an existing artifact, `--rationale "..."`
+   Optional flags when relevant: `--agent-brain-id <id>` to save into an agent
+   brain, `--parent-id <id>` to version an existing artifact, `--rationale "..."`
    to note why this version supersedes the last, `--tags a,b`.
 4. Report the returned `{id, action}` to the user. On first ever run the script may
    open the browser once for OAuth approval (same flow as /mcp; token cached

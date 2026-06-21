@@ -91,14 +91,14 @@ format is gone; invocation is unchanged). Each is both user-invocable as
   artifact. Both upload skills exist so the model never re-emits file or
   transcript content token by token — a helper script ships the bytes.
 - `/memhub:search-memory <query>` — read-only recall over facts, episodes,
-  artifacts, and documents, with context-base / tag / time filters.
+  artifacts, and documents, with agent-brain / tag / time filters.
 - `/memhub:handoff-session <teammate> [title]` — hand the current session to a
-  teammate: creates a context base holding a composed handoff brief (goal,
+  teammate: creates an agent brain holding a composed handoff brief (goal,
   state, decisions, next steps, gotchas) plus the full session import, and
-  shares it read-only via `share_context_base`. The teammate's agent picks it
-  up by searching that context base.
+  shares it read-only via `share_agent_brain`. The teammate's agent picks it
+  up by searching that agent brain.
 - `/memhub:spec <init|revise|check|status>` — spec-driven development on team
-  memory. Each repo gets **one shared context base** (`Repo: <org>/<name>`,
+  memory. Each repo gets **one shared agent brain** (`Repo: <org>/<name>`,
   derived from the git remote) holding ALL its specs alongside reviews, ADRs,
   and imported implementation sessions — share it once per teammate and every
   current and future spec is visible to them. Each spec is a **versioned

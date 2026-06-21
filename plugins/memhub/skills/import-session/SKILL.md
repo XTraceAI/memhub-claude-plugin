@@ -1,5 +1,5 @@
 ---
-description: Use when the user asks to import, upload, or save a Claude Code session/conversation/transcript into MemHub or team memory (e.g. "import this session into memhub", "save session <id> to memhub", "put that conversation in a context base"). Ships the transcript via a terminal upload script — any size, no token-by-token re-emit.
+description: Use when the user asks to import, upload, or save a Claude Code session/conversation/transcript into MemHub or team memory (e.g. "import this session into memhub", "save session <id> to memhub", "put that conversation in an agent brain"). Ships the transcript via a terminal upload script — any size, no token-by-token re-emit.
 argument-hint: <session-id-or-path> [title...]
 allowed-tools: Bash
 ---
@@ -28,13 +28,13 @@ Do exactly this:
    ```bash
    uv run --with mcp python "${CLAUDE_PLUGIN_ROOT}/scripts/import_session.py" \
      --session "<session-id-or-path>" [--title "<title>"] \
-     [--context-base-id "<id>"]
+     [--agent-brain-id "<id>"]
 
-   Pass `--context-base-id` when the user wants the session's memories in an
-   isolated, shareable context base instead of raw workspace memory (find or
-   create one via the memhub MCP's `list_context_bases` / `create_context_base`).
+   Pass `--agent-brain-id` when the user wants the session's memories in an
+   isolated, shareable agent brain instead of raw workspace memory (find or
+   create one via the memhub MCP's `list_agent_brains` / `create_agent_brain`).
    NOTE: re-imports dedup per conversation_id GLOBALLY — to re-extract an
-   already-imported session into a context base, pass a fresh
+   already-imported session into an agent brain, pass a fresh
    `--conversation-id`.
    Very large transcripts are AUTO-CHUNKED (default threshold ~3.5MB): the
    script sends disjoint slices sequentially under one conversation_id and

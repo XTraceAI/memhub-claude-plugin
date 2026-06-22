@@ -7,8 +7,10 @@ Resolution order:
    ``clientId`` / ``callbackPort`` the plugin's ``.mcp.json`` declares for the
    /mcp connector. First run opens the browser once (exactly like
    authenticating in /mcp); tokens are cached at
-   ``~/.config/memhub-plugin/tokens-<host>.json`` (0600) and refreshed
-   automatically by the MCP SDK's ``OAuthClientProvider``.
+   ``~/.config/memhub-plugin/tokens-<host>.json`` (0600). A stale access
+   token is refreshed proactively by ``_refresh_cached_token_if_stale``
+   (below) before the SDK runs — see that function for why the SDK's own
+   ``OAuthClientProvider`` refresh can't be relied on from a cold process.
 
 Usage from a sibling script:
 
@@ -21,11 +23,14 @@ Self-check:  uv run --with mcp python _memhub_auth.py
 from __future__ import annotations
 
 import asyncio
+import base64
 import errno
 import json
 import os
 import threading
 import time
+import urllib.parse
+import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -107,8 +112,10 @@ class NonInteractiveAuthRequired(RuntimeError):
     """Raised instead of opening a browser when interactive=False.
 
     Background hooks must never pop a browser at the user — they catch this
-    and degrade quietly. Only the full authorization flow hits this; a cached
-    token (even an expired one with a refresh token) never does.
+    and degrade quietly. With ``_refresh_cached_token_if_stale`` running
+    first, a cached token with a live refresh token is renewed before the
+    SDK runs, so this is only reached when there is no usable cached token
+    at all (never authenticated, or the refresh token itself is dead).
     """
 
 
@@ -253,6 +260,137 @@ def _make_callback_handler(port: int):
     return callback_handler
 
 
+# Refresh a cached access token this many seconds BEFORE it actually expires,
+# so a token that is technically-still-valid but about to lapse mid-request is
+# renewed up front rather than 401-ing on the wire.
+_REFRESH_SKEW_S = 300
+
+
+def _access_token_expiry(access_token: str) -> float | None:
+    """The ``exp`` (epoch seconds) from a JWT access token's payload, or None
+    if it isn't a decodable JWT / carries no ``exp``.
+
+    We only READ the claim to decide whether to refresh — the resource server
+    still does the real signature/expiry validation — so no verification key is
+    needed. Using the token's own ``exp`` makes the staleness check immune to
+    filesystem mtime games (a cp / restore / sync / editor touch that would
+    otherwise make an expired token look freshly-issued).
+    """
+    try:
+        payload = access_token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)  # restore base64url padding
+        exp = json.loads(base64.urlsafe_b64decode(payload)).get("exp")
+        return float(exp) if exp is not None else None
+    except Exception:  # noqa: BLE001 — opaque/non-JWT token → treat as unknown
+        return None
+
+
+def _auth_token_endpoint() -> str | None:
+    """The auth server's real ``token_endpoint`` (Auth0), discovered from the
+    ``oauth.authServerMetadataUrl`` in the plugin's ``.mcp.json``.
+
+    This is the endpoint the SDK *fails* to reach on a cold refresh (it has no
+    discovered ``oauth_metadata`` yet, so it POSTs the refresh to
+    ``<resource-server>/token`` instead). We resolve it ourselves.
+    """
+    try:
+        meta_url = _plugin_mcp_config().get("oauth", {}).get("authServerMetadataUrl")
+        if not meta_url:
+            return None
+        with urllib.request.urlopen(meta_url, timeout=10) as resp:
+            return json.loads(resp.read()).get("token_endpoint")
+    except Exception:  # noqa: BLE001 — best-effort; caller falls back to SDK
+        return None
+
+
+def _refresh_cached_token_if_stale(url: str) -> None:
+    """Renew a stale cached access token BEFORE the SDK runs. No-op on success
+    paths that don't need it; never raises.
+
+    Why this exists — the MCP SDK's ``OAuthClientProvider`` cannot refresh a
+    *reloaded* token from a cold process (as every commit/PR hook is), for two
+    compounding reasons:
+
+      1. ``_initialize()`` loads the cached token but never calls
+         ``update_token_expiry()``, so ``token_expiry_time`` stays ``None`` and
+         ``is_token_valid()`` reports an already-expired access token as valid.
+         The pre-emptive refresh branch is skipped; the stale token is sent and
+         401s.
+      2. Even when a refresh *is* attempted, ``oauth_metadata`` is ``None``
+         until the post-401 discovery runs, so ``_refresh_token()`` falls back
+         to ``urljoin(server_url, "/token")`` — the resource server, not the
+         auth server — and the refresh fails. The SDK then escalates to a FULL
+         authorization-code grant, which a background (``interactive=False``)
+         hook converts into ``NonInteractiveAuthRequired`` and skips.
+
+    Net effect without this shim: the hook works only while the cached access
+    token is inside its short lifetime, then silently stops until the next
+    interactive ``/mcp`` or terminal-script auth re-seeds it. So we do the
+    refresh here — against the *correct* auth-server ``token_endpoint`` — and
+    write the fresh token back, leaving the SDK a valid token to send.
+
+    Best-effort throughout: a missing cache, no refresh token, undiscoverable
+    endpoint, or a failed refresh all fall through to the SDK's own flow
+    (which opens a browser when interactive, or degrades quietly when not).
+    """
+    host = urlparse(url).netloc.replace(":", "_")
+    path = _CACHE_DIR / f"tokens-{host}.json"
+    try:
+        cached = json.loads(path.read_text())
+    except Exception:  # noqa: BLE001 — no/unreadable cache → nothing to refresh
+        return
+    refresh_token = cached.get("refresh_token")
+    if not refresh_token:
+        return
+
+    # Staleness gate, off the token's OWN ``exp`` claim (not file mtime, which
+    # a cp/restore/sync can reset and make an expired token look fresh). Skip
+    # the network round-trip while the token is still comfortably valid; if
+    # exp can't be read (opaque token / no claim), fall through and refresh.
+    access_token = cached.get("access_token") or ""
+    exp = _access_token_expiry(access_token)
+    if exp is not None and time.time() < exp - _REFRESH_SKEW_S:
+        return  # still valid per its own exp — let the SDK use it as-is
+
+    token_endpoint = _auth_token_endpoint()
+    client_id = _plugin_mcp_config().get("oauth", {}).get("clientId")
+    if not token_endpoint or not client_id:
+        return
+
+    data = urllib.parse.urlencode({
+        "grant_type": "refresh_token",
+        "client_id": client_id,
+        "refresh_token": refresh_token,
+    }).encode()
+    req = urllib.request.Request(
+        token_endpoint, data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            if resp.status != 200:
+                return
+            fresh = json.loads(resp.read())
+    except Exception:  # noqa: BLE001 — dead refresh token, network, etc.
+        return
+
+    # Carry the new fields onto the existing cache shape only — don't introduce
+    # keys (e.g. id_token) the SDK's OAuthToken model wasn't already validating
+    # here. Auth0 omits refresh_token when rotation is off; keep the old one.
+    updated = dict(cached)
+    for k in ("access_token", "expires_in", "scope", "token_type"):
+        if k in fresh:
+            updated[k] = fresh[k]
+    if fresh.get("refresh_token"):
+        updated["refresh_token"] = fresh["refresh_token"]
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(updated))
+        path.chmod(0o600)
+    except OSError:
+        return
+
+
 def resolve_url_and_auth(url: str | None = None, interactive: bool = True):
     """Return (url, headers, auth) for streamablehttp_client.
 
@@ -261,11 +399,16 @@ def resolve_url_and_auth(url: str | None = None, interactive: bool = True):
     refreshes it, or runs the one-time browser flow. With interactive=False
     (background hooks) the browser flow raises NonInteractiveAuthRequired
     instead of opening a tab; cached/refreshed tokens still work.
+
+    Before handing off to the SDK we proactively renew a stale cached token
+    (see ``_refresh_cached_token_if_stale``) — the SDK cannot do this itself
+    from a cold process, which silently broke the commit/PR flush hooks.
     """
     url = url or default_url()
     token = os.environ.get("MEMHUB_TOKEN", "").strip()
     if token:
         return url, {"Authorization": f"Bearer {token}"}, None
+    _refresh_cached_token_if_stale(url)
     return url, None, build_oauth(url, interactive=interactive)
 
 

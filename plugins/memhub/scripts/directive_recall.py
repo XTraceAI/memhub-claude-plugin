@@ -31,9 +31,35 @@ from _memhub_auth import resolve_url_and_auth  # noqa: E402
 _RECALL_TIMEOUT_S = 1.5
 _MAX_DIRECTIVES = 5
 
+# The firing signal for a tool call is its identifying handle — the file path
+# for an edit/write, the command for Bash — NOT the file body or diff hunks.
+_ID_ARG_KEYS = ("file_path", "notebook_path", "command")
+_MAX_ARG_CHARS = 500
+
 
 def _log(msg: str) -> None:
     print(f"[memhub-directive] {msg}", file=sys.stderr)
+
+
+def _recall_args(tool_input: dict) -> dict:
+    """Trim tool_input to what the tripwire should fire on.
+
+    Sending the whole ``tool_input`` ships large ``content`` / ``new_string``
+    blobs to the server on every Edit/Write and lets symbols buried in the new
+    content spuriously match directives. So prefer the identifying handles
+    (``file_path`` / ``command``); for a tool we don't special-case, fall back to
+    a size-capped copy so recall still has something concrete to fire on.
+    """
+    ids = {
+        k: v for k in _ID_ARG_KEYS
+        if isinstance(v := tool_input.get(k), str) and v
+    }
+    if ids:
+        return ids
+    return {
+        k: (v[:_MAX_ARG_CHARS] if isinstance(v, str) else v)
+        for k, v in tool_input.items()
+    }
 
 
 def _render(items: list[dict]) -> str:
@@ -91,7 +117,9 @@ def main() -> int:
         args = hook_input.get("tool_input") or {}
         if not tool or not isinstance(args, dict):
             return 0
-        items = asyncio.run(asyncio.wait_for(_recall(tool, args), _RECALL_TIMEOUT_S))
+        items = asyncio.run(
+            asyncio.wait_for(_recall(tool, _recall_args(args)), _RECALL_TIMEOUT_S)
+        )
         if items:
             _log(f"{len(items)} directive(s) fired for {tool}")
             print(json.dumps({

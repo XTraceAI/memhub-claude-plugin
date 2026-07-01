@@ -13,6 +13,15 @@ call, an auth gap, or any error we emit nothing and exit 0 — a memory lookup
 must NEVER block or break the agent's tool call. A tight internal timeout bounds
 the wait; the hooks.json ``timeout`` is the hard backstop.
 
+**Client-side precision gate.** The server tripwire matches loosely and has no
+LLM gate, so it can surface directives that only broadly overlap the call — most
+painfully a directive whose ``trigger_entities`` include the repo name, which
+then fires on *every* command in the repo. ``_precision_filter`` re-imposes the
+intended contract before injection: keep a directive only if one of its concrete
+triggers literally appears in the handle we fired on (command / file_path),
+after dropping always-on tokens (the repo name from ``cwd`` + generic filler).
+Fail-open — unverifiable or error cases keep the items untouched.
+
 Invoked as: ``uv run --with mcp python directive_recall.py`` with the PreToolUse
 hook JSON on stdin.
 """
@@ -20,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -60,6 +70,86 @@ def _recall_args(tool_input: dict) -> dict:
         k: (v[:_MAX_ARG_CHARS] if isinstance(v, str) else v)
         for k, v in tool_input.items()
     }
+
+
+# --- client-side precision gate -------------------------------------------
+# Always-on tokens that must never be a directive's sole anchor: English/keyword
+# filler + (dynamically) the repo name from cwd. A trigger of just one of these
+# would fire on ~every call, which is the exact noise this gate removes.
+_GENERIC_TOKENS = frozenset({
+    "true", "false", "none", "null", "self", "this", "that", "with",
+    "from", "when", "into", "your", "code", "file", "path", "main",
+    "test", "tests", "todo", "temp", "data",
+})
+_MIN_TOKEN_LEN = 4
+
+
+def _repo_tokens(cwd: str) -> set[str]:
+    """Always-on tokens derived from the working dir (the repo name + parts).
+
+    A trigger equal to the repo (e.g. ``MemHub-Backend`` → ``memhub`` /
+    ``backend``) matches essentially every call, so it can't stand alone.
+    """
+    base = Path(cwd).name.lower() if cwd else ""
+    if not base:
+        return set()
+    toks = {base}
+    toks.update(w for w in re.split(r"[^a-z0-9]+", base) if len(w) >= _MIN_TOKEN_LEN)
+    return toks
+
+
+def _trigger_tokens(trigger: str) -> set[str]:
+    """Concrete, matchable tokens for one trigger entity.
+
+    The full string, plus (for a path) its basename and extension-less stem,
+    plus long identifier words. Short fragments are dropped so ``app`` / ``py``
+    can't drive a spurious match.
+    """
+    t = trigger.strip().lower()
+    if not t:
+        return set()
+    toks = {t}
+    if "/" in t or "." in t:
+        base = t.rsplit("/", 1)[-1]
+        toks.add(base)
+        if "." in base:
+            toks.add(base.rsplit(".", 1)[0])
+    toks.update(w for w in re.split(r"[^a-z0-9_]+", t) if len(w) >= 5)
+    return {w for w in toks if len(w) >= _MIN_TOKEN_LEN}
+
+
+def _precision_filter(items: list[dict], args: dict, cwd: str) -> list[dict]:
+    """Keep only directives that concretely match the handle we fired on.
+
+    An item survives when it declares no triggers (unverifiable → trusted) or
+    when at least one of its non-generic trigger tokens is a substring of the
+    call's identifying handle (command / file_path). Fail-open: any error
+    returns ``items`` unchanged, so the gate can never suppress the feature.
+    """
+    try:
+        haystack = " ".join(
+            v.lower() for v in args.values() if isinstance(v, str)
+        )
+        if not haystack:
+            return items
+        blocked = _GENERIC_TOKENS | _repo_tokens(cwd)
+        kept: list[dict] = []
+        for d in items:
+            triggers = d.get("triggers")
+            if not isinstance(triggers, list) or not triggers:
+                kept.append(d)  # no declared triggers → can't verify → keep
+                continue
+            tokens = {
+                tok
+                for t in triggers if isinstance(t, str)
+                for tok in _trigger_tokens(t)
+                if tok not in blocked
+            }
+            if any(tok in haystack for tok in tokens):
+                kept.append(d)
+        return kept
+    except Exception:  # noqa: BLE001 — the gate must never break the hook
+        return items
 
 
 def _render(items: list[dict]) -> str:
@@ -117,9 +207,13 @@ def main() -> int:
         args = hook_input.get("tool_input") or {}
         if not tool or not isinstance(args, dict):
             return 0
+        recall_args = _recall_args(args)
         items = asyncio.run(
-            asyncio.wait_for(_recall(tool, _recall_args(args)), _RECALL_TIMEOUT_S)
+            asyncio.wait_for(_recall(tool, recall_args), _RECALL_TIMEOUT_S)
         )
+        # Re-impose the symbol-tripwire contract the loose server match doesn't:
+        # only surface directives whose triggers concretely hit this call.
+        items = _precision_filter(items, recall_args, hook_input.get("cwd") or "")
         if items:
             _log(f"{len(items)} directive(s) fired for {tool}")
             print(json.dumps({

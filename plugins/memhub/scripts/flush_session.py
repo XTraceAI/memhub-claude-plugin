@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import subprocess
 import sys
 from pathlib import Path
 
@@ -72,15 +73,40 @@ async def _flush(session_id: str, transcript_path: str) -> None:
         _log("empty transcript; nothing to flush")
         return
 
+    # Working-context scope for captured directives: git remote basename from
+    # the transcript's cwd, resolved client-side (a worktree dir name would
+    # stamp a scope that hides directives from the canonical repo's recalls —
+    # the remote is stable across worktrees). None → import stays unscoped.
+    cwd = next((r.get("cwd") for r in records
+                if isinstance(r, dict) and isinstance(r.get("cwd"), str)
+                and r.get("cwd")), None)
+    namespace = None
+    if cwd:
+        try:
+            out = subprocess.run(
+                ["git", "-C", cwd, "remote", "get-url", "origin"],
+                capture_output=True, text=True, timeout=2,
+            )
+            u = out.stdout.strip()
+            if out.returncode == 0 and u:
+                namespace = u.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+        except (OSError, subprocess.SubprocessError):
+            pass
+
     url, headers, auth = resolve_url_and_auth(interactive=False)
     async with streamablehttp_client(url, headers=headers, auth=auth) as (r, w, _):
         async with ClientSession(r, w) as session:
             await session.initialize()
-            res = await session.call_tool("import_conversation", arguments={
+            arguments = {
                 "messages": records,
                 "conversation_id": session_id,
                 "source_platform": "claude",
-            })
+            }
+            if namespace:
+                # Server ignores unknown args pre-#722; stamps directive
+                # scope after.
+                arguments["namespace"] = namespace
+            res = await session.call_tool("import_conversation", arguments=arguments)
             texts = [t for t in (getattr(b, "text", None)
                                  for b in getattr(res, "content", []) or []) if t]
             # MCP signals tool failure via isError + a message in content,

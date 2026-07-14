@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -172,6 +173,30 @@ def call_error(result, payload: dict) -> str | None:
     return None
 
 
+def _namespace_from_records(records: list[dict]) -> str | None:
+    """The session's working context: git remote basename resolved from the
+    transcript's ``cwd`` (client-side — the server never derives this, since a
+    worktree dir basename would stamp a scope that HIDES directives from the
+    canonical repo's scoped recalls). None when it can't be resolved
+    confidently — unscoped stores serve everywhere, a wrong scope doesn't."""
+    cwd = next((r.get("cwd") for r in records
+                if isinstance(r, dict) and isinstance(r.get("cwd"), str)
+                and r.get("cwd")), None)
+    if not cwd:
+        return None
+    try:
+        out = subprocess.run(
+            ["git", "-C", cwd, "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=2,
+        )
+        url = out.stdout.strip()
+        if out.returncode == 0 and url:
+            return url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser(description="Import a Claude Code session into MemHub.")
     ap.add_argument("--session", required=True,
@@ -182,6 +207,10 @@ async def main() -> int:
     ap.add_argument("--agent-brain-id", default=None,
                     help="route the extracted facts/episodes into an agent brain "
                          "(isolated, shareable) instead of raw workspace memory")
+    ap.add_argument("--namespace", default=None,
+                    help="Working-context name for captured directives (the "
+                         "repo). Default: resolved from the transcript's cwd "
+                         "via the git remote basename; pass '' to disable.")
     ap.add_argument("--url", default=None)
     ap.add_argument("--chunk-bytes", type=int, default=3_500_000,
                     help="transcripts larger than this are sent as sequential "
@@ -211,6 +240,9 @@ async def main() -> int:
         return 2
 
     conv_id = args.conversation_id or f.stem
+    # --namespace wins; '' explicitly disables; default = resolve from records.
+    namespace = (args.namespace if args.namespace is not None
+                 else _namespace_from_records(records)) or None
     url, headers, auth = resolve_url_and_auth(args.url)
 
     slices = _slices(records, args.chunk_bytes) if args.chunk_bytes else [records]
@@ -221,6 +253,8 @@ async def main() -> int:
     print(f"endpoint        : {url}")
     if args.agent_brain_id:
         print(f"agent brain     : {args.agent_brain_id}")
+    if namespace:
+        print(f"namespace       : {namespace}")
     print("-" * 56)
 
     if len(slices) > 1:
@@ -243,6 +277,10 @@ async def main() -> int:
                     call_args["title"] = args.title
                 if args.agent_brain_id:
                     call_args["agent_brain_id"] = args.agent_brain_id
+                if namespace:
+                    # Server ignores unknown args pre-#722; stamps directive
+                    # scope after.
+                    call_args["namespace"] = namespace
                 if len(slices) > 1:
                     print(f"--- slice {i}/{len(slices)}: {len(sl)} records ---")
                 res = await s.call_tool("import_conversation", arguments=call_args)

@@ -26,6 +26,17 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "^(Edit|MultiEdit|Write|NotebookEdit|Bash)$",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 8,
+            "statusMessage": "MemHub: checking directives for this failure",
+            "command": "IN=$(cat); if [ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] && printf %s \"$IN\" | python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/reactive_prefilter.py\"; then printf %s \"$IN\" | uv run --with mcp python \"${CLAUDE_PLUGIN_ROOT}/scripts/directive_recall.py\"; fi"
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {

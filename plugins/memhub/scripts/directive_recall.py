@@ -25,6 +25,18 @@ candidates. Repeats measured as 76% of all injection noise.
 as ``repo``: the server scopes recall to directives learned there (legacy
 unscoped rows still pass) and discounts the repo's own name as a trigger.
 
+**Reactive (PostToolUse) recall on failure.** The same script serves a second
+hook: when a tool call FAILS, the error text itself is the richest firing
+signal — a traceback names the module, a codegen error names the schema path,
+an npm failure names the underlying binary an alias hid. On PostToolUse input
+(detected by ``tool_response``) the script fires only when the output looks
+like a failure, sends its tail as ``output`` so the server can extract
+identifiers from it, and widens the client precision gate's haystack with the
+same text (a lesson anchored on the CAUSE must survive even when the command
+line only shows an alias). Measured motivator: a captured dangling-``$ref``
+lesson anchored on ``openapi-typescript`` never fired at the failure site
+because the command said ``npm run gen:types``.
+
 **Client-side precision gate.** ``_precision_filter`` re-imposes the concrete
 trigger-in-handle contract before injection — transitional belt-and-braces for
 servers predating the match-semantics funnel; fail-open.
@@ -55,6 +67,16 @@ _MAX_DIRECTIVES = 5
 # for an edit/write, the command for Bash — NOT the file body or diff hunks.
 _ID_ARG_KEYS = ("file_path", "notebook_path", "command")
 _MAX_ARG_CHARS = 500
+
+# Reactive path: the TAIL of a failing output carries the error (tracebacks and
+# tool failures print last); cap what we ship. Fire only on a clear failure —
+# a quiet PostToolUse must cost nothing.
+_MAX_OUTPUT_CHARS = 1500
+_ERROR_RE = re.compile(
+    r"(?:Traceback \(most recent call last\)|\b[A-Z][a-zA-Z]*Error\b"
+    r"|\bERROR\b|\bError\b|error:|✘|npm ERR!|FAILED\b|fatal:|Exception\b"
+    r"|command not found|No such file or directory)"
+)
 
 # Session already_fired state: one small JSON list per session id, pruned by
 # age so the directory can't grow unbounded across months of sessions.
@@ -119,6 +141,31 @@ def _repo_name(cwd: str) -> str:
     except (OSError, subprocess.SubprocessError):
         pass
     return Path(cwd).name
+
+
+def _error_output(hook_input: dict) -> str | None:
+    """The failing output's tail, or ``None`` when this isn't a failure.
+
+    PostToolUse's ``tool_response`` shape varies by tool (string, dict with
+    stdout/stderr, structured error) — stringify defensively, keep the tail
+    (errors print last), and gate on failure markers so a quiet success never
+    costs a recall round-trip.
+    """
+    resp = hook_input.get("tool_response")
+    if resp is None:
+        return None
+    if isinstance(resp, dict):
+        parts = [v for k in ("stderr", "stdout", "output", "error", "text")
+                 if isinstance(v := resp.get(k), str) and v]
+        # Raw parts; the dumps fallback keeps non-ASCII (the ✘ failure marker)
+        # matchable.
+        text = "\n".join(parts) if parts else json.dumps(resp, ensure_ascii=False)
+    else:
+        text = str(resp)
+    tail = text[-_MAX_OUTPUT_CHARS:].strip()
+    if not tail or not _ERROR_RE.search(tail):
+        return None
+    return tail
 
 
 def _recall_args(tool_input: dict) -> dict:
@@ -188,17 +235,23 @@ def _trigger_tokens(trigger: str) -> set[str]:
     return {w for w in toks if len(w) >= _MIN_TOKEN_LEN}
 
 
-def _precision_filter(items: list[dict], args: dict, cwd: str) -> list[dict]:
+def _precision_filter(
+    items: list[dict], args: dict, cwd: str, extra_haystack: str = "",
+) -> list[dict]:
     """Keep only directives that concretely match the handle we fired on.
 
     An item survives when it declares no triggers (unverifiable → trusted) or
     when at least one of its non-generic trigger tokens is a substring of the
-    call's identifying handle (command / file_path). Fail-open: any error
-    returns ``items`` unchanged, so the gate can never suppress the feature.
+    call's identifying handle (command / file_path). On the reactive path the
+    failing output joins the haystack (``extra_haystack``): a lesson anchored
+    on the CAUSE named in the error must survive even when the command line
+    only shows an alias. Fail-open: any error returns ``items`` unchanged, so
+    the gate can never suppress the feature.
     """
     try:
         haystack = " ".join(
-            v.lower() for v in args.values() if isinstance(v, str)
+            v.lower() for v in list(args.values()) + [extra_haystack]
+            if isinstance(v, str) and v
         )
         if not haystack:
             return items
@@ -247,7 +300,9 @@ def _render(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def _recall(tool: str, args: dict, repo: str, fired: list[str]) -> list[dict]:
+async def _recall(
+    tool: str, args: dict, repo: str, fired: list[str], output: str | None = None,
+) -> list[dict]:
     from mcp.client.session import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
@@ -256,6 +311,11 @@ async def _recall(tool: str, args: dict, repo: str, fired: list[str]) -> list[di
         async with ClientSession(r, w) as session:
             await session.initialize()
             arguments: dict = {"tool": tool, "args": args}
+            if output:
+                # Reactive path: the server extracts identifiers from the
+                # failing output too (`output` predates repo/already_fired,
+                # so it needs no legacy-retry handling).
+                arguments["output"] = output
             if repo:
                 arguments["repo"] = repo
             if fired:
@@ -302,13 +362,21 @@ def main() -> int:
         args = hook_input.get("tool_input") or {}
         if not tool or not isinstance(args, dict):
             return 0
+        # PostToolUse input carries the tool's result: this is the reactive
+        # path — recall on FAILURES, where the error text names identifiers
+        # (the true cause) that the command line never showed. On a success
+        # (or a PreToolUse call) `output` stays None and nothing changes.
+        reactive = "tool_response" in hook_input
+        output = _error_output(hook_input) if reactive else None
+        if reactive and not output:
+            return 0  # successful tool call — a quiet PostToolUse costs nothing
         cwd = hook_input.get("cwd") or ""
         session_id = str(hook_input.get("session_id") or "")
         fired = _load_fired(session_id)
         recall_args = _recall_args(args)
         items = asyncio.run(
             asyncio.wait_for(
-                _recall(tool, recall_args, _repo_name(cwd), fired),
+                _recall(tool, recall_args, _repo_name(cwd), fired, output),
                 _RECALL_TIMEOUT_S,
             )
         )
@@ -318,14 +386,16 @@ def main() -> int:
         fired_set = set(fired)
         items = [d for d in items if str(d.get("id") or "") not in fired_set]
         # Re-impose the symbol-tripwire contract for servers predating the
-        # match-semantics funnel: only triggers that concretely hit this call.
-        items = _precision_filter(items, recall_args, cwd)
+        # match-semantics funnel: only triggers that concretely hit this call —
+        # where "this call" includes the failing output on the reactive path.
+        items = _precision_filter(items, recall_args, cwd, output or "")
         items = items[:_MAX_DIRECTIVES]
         if items:
-            _log(f"{len(items)} directive(s) fired for {tool}")
+            _log(f"{len(items)} directive(s) fired for {tool}"
+                 + (" (reactive, on failure output)" if output else ""))
             print(json.dumps({
                 "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
+                    "hookEventName": "PostToolUse" if reactive else "PreToolUse",
                     "additionalContext": _render(items),
                 }
             }))

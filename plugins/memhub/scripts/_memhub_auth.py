@@ -43,14 +43,27 @@ from mcp.shared.auth import (
     OAuthToken,
 )
 
-_SCRIPTS_DIR = Path(__file__).resolve().parent
 _CACHE_DIR = Path.home() / ".config" / "memhub-plugin"
+
+
+def _plugin_root() -> Path:
+    """The installed plugin dir — prod ``memhub`` or ``memhub-staging``.
+
+    Prefer ``$CLAUDE_PLUGIN_ROOT`` (set by Claude Code, authoritative). When it
+    is unset (a standalone script run) fall back to this file's location — but
+    UNRESOLVED: ``scripts/`` is symlinked into the memhub-staging plugin, so
+    ``Path(__file__).resolve()`` would collapse the symlink to the prod
+    ``memhub`` dir and read the wrong ``.mcp.json`` (a staging install would
+    then auth against and talk to prod). The unresolved path keeps the real
+    plugin identity.
+    """
+    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    return Path(root) if root else Path(__file__).parent.parent
 
 
 def _plugin_mcp_config() -> dict:
     """The memhub server entry from the plugin's .mcp.json (url, oauth)."""
-    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    cfg = (Path(root) if root else _SCRIPTS_DIR.parent) / ".mcp.json"
+    cfg = _plugin_root() / ".mcp.json"
     servers = json.loads(cfg.read_text()).get("mcpServers", {})
     name = next((k for k in servers if k.lower().startswith("memhub")),
                 next(iter(servers)) if len(servers) == 1 else None)
@@ -70,12 +83,20 @@ def default_url() -> str:
             return url
     except Exception:  # noqa: BLE001
         pass
-    # Last-resort fallback, only reached if .mcp.json can't be read at all.
-    # This module is symlinked into the memhub-staging plugin, so it can't tell
-    # which environment it belongs to without the (unreadable) config — default
-    # to STAGING so a config-read failure fails safe. Falling back to prod here
-    # would let a broken staging install silently push dev data to production.
-    return "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
+    # .mcp.json was unreadable/corrupt. Don't guess a fixed URL — a single
+    # hardcoded env is wrong for one of the two installs (this module is shared
+    # with memhub-staging). Derive the backend from the plugin dir instead, and
+    # fail loud if even that is unknown, rather than silently misrouting.
+    name = _plugin_root().name
+    if "staging" in name:
+        return "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
+    if "memhub" in name:
+        return "https://api.memhub.xtrace.ai/mcp-server/mcp"
+    raise RuntimeError(
+        "Cannot determine the MemHub backend: .mcp.json is unreadable and the "
+        f"plugin directory ({name!r}) is unrecognized. "
+        "Set MEMHUB_MCP_BASE_URL explicitly."
+    )
 
 
 class _FileTokenStorage(TokenStorage):

@@ -70,7 +70,7 @@ def default_url() -> str:
             return url
     except Exception:  # noqa: BLE001
         pass
-    return "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
+    return "https://api.memhub.xtrace.ai/mcp-server/mcp"
 
 
 class _FileTokenStorage(TokenStorage):

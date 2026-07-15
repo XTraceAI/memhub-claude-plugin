@@ -1,7 +1,7 @@
 ---
 description: Use when a PR should be babysat to green — poll its review bots (Cursor bugbot, OpenAI Codex) and CI, fix the real findings, push, and when clean save the whole fixing process to the repo's MemHub room (e.g. "babysit this PR", "watch PR 14 and fix the bot findings", or auto-armed by the memhub hook right after `gh pr create`). Designed as the body of a self-paced /loop — one poll→fix→push pass per invocation; the final pass writes the memory and ends the loop.
 argument-hint: [pr-number-or-url]
-allowed-tools: mcp__memhub-staging__list_agent_brains, mcp__memhub-staging__create_agent_brain, mcp__memhub-staging__import_conversation, Bash, Read, Edit, Write, Glob, Grep
+allowed-tools: mcp__memhub__list_agent_brains, mcp__memhub__create_agent_brain, mcp__memhub__import_conversation, Bash, Read, Edit, Write, Glob, Grep
 ---
 
 Babysit a pull request until its review bots are satisfied, then bank what
@@ -125,6 +125,6 @@ gist.
 Then report to the user (PR state, what was fixed, where the memory went)
 and END the loop — do not schedule another wake-up.
 
-Plain-English output throughout. If the memhub-staging MCP is not
+Plain-English output throughout. If the memhub MCP is not
 connected, do the fixing anyway and tell the user the memory save needs
 `/mcp` authentication — don't fail the babysit over it.

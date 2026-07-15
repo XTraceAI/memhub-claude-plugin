@@ -85,16 +85,22 @@ def default_url() -> str:
         pass
     # .mcp.json was unreadable/corrupt. Don't guess a fixed URL — a single
     # hardcoded env is wrong for one of the two installs (this module is shared
-    # with memhub-staging). Derive the backend from the plugin dir instead, and
-    # fail loud if even that is unknown, rather than silently misrouting.
-    name = _plugin_root().name
-    if "staging" in name:
+    # with memhub-staging). Derive the backend from the plugin PATH: the install
+    # dir is .../<plugin-name>/<version>/, so the version basename says nothing —
+    # match the whole path, which always contains "memhub" for a real install, so
+    # the raise below is unreachable in practice. Background-hook callers
+    # (flush_session, directive_recall) wrap resolve_url_and_auth() in a
+    # top-level `except BaseException` and exit 0 quietly, so even if it did fire
+    # it degrades soft there; the raise only ever surfaces to a foreground
+    # script, where failing loud beats silently talking to the wrong backend.
+    root = str(_plugin_root()).lower()
+    if "staging" in root:
         return "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
-    if "memhub" in name:
+    if "memhub" in root:
         return "https://api.memhub.xtrace.ai/mcp-server/mcp"
     raise RuntimeError(
         "Cannot determine the MemHub backend: .mcp.json is unreadable and the "
-        f"plugin directory ({name!r}) is unrecognized. "
+        f"plugin path ({_plugin_root()}) is unrecognized. "
         "Set MEMHUB_MCP_BASE_URL explicitly."
     )
 

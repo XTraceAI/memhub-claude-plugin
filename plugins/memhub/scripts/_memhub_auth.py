@@ -70,7 +70,12 @@ def default_url() -> str:
             return url
     except Exception:  # noqa: BLE001
         pass
-    return "https://api.memhub.xtrace.ai/mcp-server/mcp"
+    # Last-resort fallback, only reached if .mcp.json can't be read at all.
+    # This module is symlinked into the memhub-staging plugin, so it can't tell
+    # which environment it belongs to without the (unreadable) config — default
+    # to STAGING so a config-read failure fails safe. Falling back to prod here
+    # would let a broken staging install silently push dev data to production.
+    return "https://api.staging.memhub.xtrace.ai/mcp-server/mcp"
 
 
 class _FileTokenStorage(TokenStorage):

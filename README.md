@@ -2,18 +2,18 @@
 
 Auto-capture your Claude Code sessions into **MemHub team memory**. At the end of
 each session, an agent hook reads the transcript and saves it through the
-`memhub-staging` MCP server, which runs **tool-aware (agentic) extraction** of
+`memhub` MCP server, which runs **tool-aware (agentic) extraction** of
 facts, episodes, and artifacts.
 
 ## What's in here
 
-This repo is a **marketplace** with two plugins:
+This repo is a **marketplace** with three plugins:
 
 ```
 .claude-plugin/marketplace.json     # makes the plugins installable
-plugins/memhub/
+plugins/memhub/                     # PROD build — install this one
 ├── .claude-plugin/plugin.json      # plugin manifest
-├── .mcp.json                       # the memhub-staging MCP server (per-user OAuth)
+├── .mcp.json                       # the memhub MCP server → prod (per-user OAuth)
 ├── hooks/hooks.json                # SessionEnd → agent hook → import_conversation
 └── skills/                         # /memhub:* skills (also auto-invoked by Claude)
     ├── handoff-session/            # hand the current session to a teammate
@@ -21,6 +21,12 @@ plugins/memhub/
     ├── save-artifact/              # store a file as a MemHub artifact
     ├── search-memory/              # read-only team-memory recall
     └── spec/                       # spec-driven dev on versioned spec artifacts
+plugins/memhub-staging/             # STAGING build for MemHub devs (see below)
+├── .claude-plugin/plugin.json      # its own manifest
+├── .mcp.json                       # the memhub MCP server → staging
+├── skills/  → ../memhub/skills     # symlinked: shared with memhub, never drifts
+├── hooks/   → ../memhub/hooks      # symlinked
+└── scripts/ → ../memhub/scripts    # symlinked
 plugins/fleet/
 ├── .claude-plugin/plugin.json      # plugin manifest
 ├── hooks/hooks.json                # SessionStart/UserPromptSubmit/PostToolUse/SessionEnd
@@ -43,7 +49,25 @@ Then authenticate the MCP server once (the hook can't run until it's connected):
 /mcp
 ```
 
-Select `memhub-staging`, choose **Authenticate**, and approve in the browser.
+Select `memhub`, choose **Authenticate**, and approve in the browser.
+
+### Prod vs. staging
+
+Almost everyone wants **`memhub`** — it talks to the production backend.
+
+**MemHub developers** iterating on the service can install **`memhub-staging`**
+instead, which is byte-for-byte the same plugin (skills/hooks/scripts are
+symlinked, so they never drift) but pointed at the staging backend:
+
+```text
+/plugin install memhub-staging@memhub
+```
+
+Both plugins register an MCP server literally named `memhub` (that's what keeps
+the skills identical), so **install one or the other, never both** — two
+`memhub` servers in one client collide. The two differ only in `.mcp.json`
+(backend URL + OAuth client). Switching env = uninstall one, install the other,
+then re-run `/mcp` to authenticate against the new backend.
 
 ## How it works
 

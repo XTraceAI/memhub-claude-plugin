@@ -28,6 +28,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -40,9 +41,21 @@ _SESSIONS = Path.home() / ".codex" / "sessions"
 _IMPORT_SESSION = (Path(__file__).resolve().parent.parent
                    / "plugins" / "memhub" / "scripts" / "import_session.py")
 
+# Codex rollout files are named rollout-<ISO-timestamp>-<uuid>.jsonl.
+_ROLLOUT_UUID_RE = re.compile(
+    r"-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$")
+
+
+def rollout_uuid(path) -> str | None:
+    """The trailing session UUID of a rollout filename, or None if it doesn't
+    match the ``rollout-<ts>-<uuid>`` pattern."""
+    m = _ROLLOUT_UUID_RE.search(Path(path).stem)
+    return m.group(1) if m else None
+
 
 def resolve_rollout(session: str) -> tuple[Path | None, str]:
-    """Accept a rollout path, ``latest``, or a bare Codex session id."""
+    """Accept a rollout path, ``latest``, or a bare Codex session id (UUID)."""
     p = Path(session).expanduser()
     if p.is_file():
         return p, ""
@@ -54,12 +67,17 @@ def resolve_rollout(session: str) -> tuple[Path | None, str]:
         return None, f"no Codex rollouts under {_SESSIONS}"
     if session == "latest":
         return max(files, key=lambda f: f.stat().st_mtime), ""
-    # match a rollout whose filename ends with the session id
+    # Match the session UUID exactly (anchored on the '-' before it, so a partial
+    # id can't match mid-UUID). Ambiguity is an error, not a largest-file guess —
+    # picking the wrong session would fold-forward the wrong conversation's gist.
     sid = session.removesuffix(".jsonl")
-    hits = [f for f in files if f.stem.endswith(sid)]
+    hits = [f for f in files if rollout_uuid(f) == sid or f.stem.endswith(f"-{sid}")]
     if not hits:
         return None, f"no Codex rollout matching session id {sid!r} under {_SESSIONS}"
-    return max(hits, key=lambda f: f.stat().st_size), ""
+    if len(hits) > 1:
+        return None, (f"ambiguous session id {sid!r}: {len(hits)} rollouts match — "
+                      "pass the full session UUID or the rollout path")
+    return hits[0], ""
 
 
 def main() -> int:
@@ -93,7 +111,10 @@ def main() -> int:
         print(f"ERROR: nothing to import from {f}", file=sys.stderr)
         return 2
 
-    sid = meta.get("session_id") or f.stem
+    # Keep conv_id == codex-<session-uuid> regardless of how the session was
+    # addressed (meta id, --session latest, or a bare id), so incremental dedup
+    # holds. Fall back to the filename UUID, then the stem, if meta lacks the id.
+    sid = meta.get("session_id") or rollout_uuid(f) or f.stem
     conv_id = args.conversation_id or f"codex-{sid}"
     title = args.title or meta.get("title")
 

@@ -129,6 +129,15 @@ def test_missing_call_id():
     print("PASS test_missing_call_id")
 
 
+def test_rollout_uuid():
+    from import_codex_session import rollout_uuid
+    p = "/x/2026/02/17/rollout-2026-02-17T17-06-25-019c6e48-b66c-7881-9301-99c87fc66cf6.jsonl"
+    assert rollout_uuid(p) == "019c6e48-b66c-7881-9301-99c87fc66cf6"
+    assert rollout_uuid("/x/not-a-rollout.jsonl") is None
+    assert rollout_uuid("/x/rollout-2026-partial.jsonl") is None
+    print("PASS test_rollout_uuid")
+
+
 def _kind(r):
     m = r["message"]
     c = m["content"]
@@ -172,5 +181,6 @@ if __name__ == "__main__":
     test_clean_user_text()
     test_synthetic()
     test_missing_call_id()
+    test_rollout_uuid()
     test_real_smoke()
     print("ALL PASS")

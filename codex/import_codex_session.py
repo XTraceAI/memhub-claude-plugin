@@ -138,28 +138,29 @@ def main() -> int:
     transcript = tmpdir / f"codex-{sid}.jsonl"
     transcript.write_text("".join(json.dumps(r) + "\n" for r in records))
 
-    if args.dry_run:
-        print(f"[dry-run] wrote {len(records)} records -> {transcript}")
-        print("[dry-run] skipping import_conversation")
-        return 0
-
-    cmd = [
-        "uv", "run", "--with", "mcp", "python", str(_IMPORT_SESSION),
-        "--session", str(transcript),
-        "--conversation-id", conv_id,
-    ]
-    if title:
-        cmd += ["--title", title]
-    if args.agent_brain_id:
-        cmd += ["--agent-brain-id", args.agent_brain_id]
-    if args.namespace is not None:
-        cmd += ["--namespace", args.namespace]
-    if args.url:
-        cmd += ["--url", args.url]
-
     try:
+        if args.dry_run:
+            print(f"[dry-run] wrote {len(records)} records -> {transcript}")
+            print("[dry-run] skipping import_conversation")
+            return 0
+
+        cmd = [
+            "uv", "run", "--with", "mcp", "python", str(_IMPORT_SESSION),
+            "--session", str(transcript),
+            "--conversation-id", conv_id,
+        ]
+        if title:
+            cmd += ["--title", title]
+        if args.agent_brain_id:
+            cmd += ["--agent-brain-id", args.agent_brain_id]
+        if args.namespace is not None:
+            cmd += ["--namespace", args.namespace]
+        if args.url:
+            cmd += ["--url", args.url]
+
         return subprocess.run(cmd).returncode
     finally:
+        # Always clean up the temp transcript — including on the dry-run path.
         try:
             transcript.unlink()
             tmpdir.rmdir()

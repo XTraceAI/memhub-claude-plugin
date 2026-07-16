@@ -80,8 +80,10 @@ that imports the newest rollout when a session ends:
 notify = ["python3", "/absolute/path/to/codex/codex_notify.py"]
 ```
 
-`codex_notify.py` is a thin filter: on a session-end event it runs
-`import_codex_session.py --session latest`. Whether Codex emits a usable
-session-end event varies by version — confirm with your build before relying on
-it; the manual import above always works.
+`codex_notify.py` is a thin filter: on a turn/session-completion event it runs
+`import_codex_session.py --session latest` detached, with a debounce (one
+auto-import per ~2 min) so a burst of turns doesn't re-send the whole rollout
+each time. Whether Codex emits a usable completion event varies by version —
+confirm with your build before relying on it; the manual import above always
+works.
 ```

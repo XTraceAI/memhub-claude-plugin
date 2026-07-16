@@ -8,9 +8,10 @@ Wire it up in ``~/.codex/config.toml``::
 Codex invokes the notify program with a single JSON argument describing an
 event. On a turn/session-completion event this fires
 ``import_codex_session.py --session latest`` **detached** (fire-and-forget), so
-Codex is never blocked. Re-importing is incremental — the server watermark
-folds the session gist forward instead of duplicating — so it's safe to fire on
-every turn.
+Codex is never blocked. Re-importing is incremental (the server watermark folds
+the session gist forward instead of duplicating), and a debounce caps auto-
+imports to one per ``_MIN_INTERVAL_S`` seconds so a burst of turns doesn't
+re-send the whole rollout each time.
 
 This is deliberately conservative: unknown event shapes, parse failures, and
 missing files all exit 0 silently. Auto-capture is a convenience; the manual
@@ -22,10 +23,27 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # Events that mean "a turn finished, the rollout has new content worth banking".
 _CAPTURE_EVENTS = {"agent-turn-complete", "turn-complete", "session-complete"}
+
+# Debounce: Codex fires turn-complete after EVERY turn, and each import re-reads,
+# re-transforms and re-sends the whole rollout (the server dedups, but the work
+# is wasted). Cap auto-imports to one per this many seconds. Tradeoff: a session
+# whose final turn lands inside the window is captured on the next fire or a
+# manual import — nothing is lost permanently (re-import is incremental).
+_MIN_INTERVAL_S = 120
+_MARKER = Path.home() / ".config" / "memhub-plugin" / "codex-notify-last"
+
+
+def _debounced() -> bool:
+    """True if an auto-import fired within the last _MIN_INTERVAL_S seconds."""
+    try:
+        return time.time() - _MARKER.stat().st_mtime < _MIN_INTERVAL_S
+    except OSError:
+        return False  # no marker yet (or unreadable) → not debounced
 
 
 def main() -> int:
@@ -41,9 +59,20 @@ def main() -> int:
     if etype not in _CAPTURE_EVENTS:
         return 0
 
+    if _debounced():
+        return 0  # a recent auto-import already covers the latest turns
+
     importer = Path(__file__).resolve().parent / "import_codex_session.py"
     if not importer.is_file():
         return 0
+
+    # Stamp the marker BEFORE launching so concurrent turn-complete events in the
+    # same window are debounced even though the detached import runs async.
+    try:
+        _MARKER.parent.mkdir(parents=True, exist_ok=True)
+        _MARKER.touch()
+    except OSError:
+        pass
 
     # Detached, output discarded — never slow or crash the Codex session.
     try:

@@ -202,7 +202,6 @@ def rollout_to_claude_records(rollout: list[dict]) -> tuple[list[dict], dict]:
     banner += "]"
     out.append(user(banner))
 
-    last_call_id: str | None = None  # to pair an id-less output with its call
     for idx, r in enumerate(rollout):
         if r.get("type") != "response_item":
             continue
@@ -232,10 +231,9 @@ def rollout_to_claude_records(rollout: list[dict]) -> tuple[list[dict], dict]:
 
         elif pt in ("function_call", "custom_tool_call"):
             # Real Codex tool calls always carry call_id; synthesize a unique,
-            # non-None id if a malformed record omits it, so tool_use/tool_result
-            # never link on a None id.
+            # non-None id if a malformed record omits it (the matching output
+            # carries the same call_id, so pairing still holds).
             call_id = pl.get("call_id") or pl.get("id") or f"codex-call-{idx}"
-            last_call_id = call_id
             out.append(assistant({
                 "type": "tool_use",
                 "id": call_id,
@@ -244,10 +242,11 @@ def rollout_to_claude_records(rollout: list[dict]) -> tuple[list[dict], dict]:
             }))
 
         elif pt in ("function_call_output", "custom_tool_call_output"):
-            # Pair an id-less output with the most recent call (outputs follow
-            # their call in the Responses stream); never emit a None id.
-            call_id = (pl.get("call_id") or pl.get("id") or last_call_id
-                       or f"codex-out-{idx}")
+            # An id-less output is inherently unpairable (its call_id is the only
+            # link, and parallel calls make positional guessing wrong). Give it a
+            # UNIQUE id so it orphans cleanly rather than mispairing to — or
+            # duplicate-linking — an unrelated call. Never happens for real Codex.
+            call_id = pl.get("call_id") or pl.get("id") or f"codex-out-{idx}"
             output = pl.get("output")
             if not isinstance(output, str):
                 output = json.dumps(output) if output is not None else ""

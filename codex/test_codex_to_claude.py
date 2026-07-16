@@ -109,22 +109,23 @@ def test_synthetic():
 
 
 def test_missing_call_id():
-    """A malformed tool call/output without call_id must never emit id=None,
-    and an id-less output pairs with the most recent call."""
+    """Malformed tool records without call_id must never emit id=None, and an
+    id-less output must ORPHAN with a unique id rather than mispair — including
+    two id-less outputs not collapsing onto one call."""
     roll = [
         _line("session_meta", {"id": "s", "cwd": "/x"}),
         _line("response_item", {"type": "function_call", "name": "f",
                                "arguments": "{}"}),  # no call_id
-        _line("response_item", {"type": "function_call_output",
-                               "output": "ok"}),      # no call_id
+        _line("response_item", {"type": "function_call_output", "output": "a"}),  # no call_id
+        _line("response_item", {"type": "function_call_output", "output": "b"}),  # no call_id
     ]
     recs, _ = rollout_to_claude_records(roll)
     tu = recs[1]["message"]["content"][0]
-    tr = recs[2]["message"]["content"][0]
-    assert tu["type"] == "tool_use" and tu["id"], tu
-    assert tr["type"] == "tool_result", tr
-    assert tr["tool_use_id"] == tu["id"], (tu, tr)  # output paired to the call
-    assert tu["id"] is not None and tr["tool_use_id"] is not None
+    tr1 = recs[2]["message"]["content"][0]
+    tr2 = recs[3]["message"]["content"][0]
+    ids = [tu["id"], tr1["tool_use_id"], tr2["tool_use_id"]]
+    assert all(i for i in ids), ids               # never None/empty
+    assert len(set(ids)) == 3, ids                # all distinct: no mispair, no dup-link
     print("PASS test_missing_call_id")
 
 

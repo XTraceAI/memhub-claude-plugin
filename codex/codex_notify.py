@@ -66,14 +66,6 @@ def main() -> int:
     if not importer.is_file():
         return 0
 
-    # Stamp the marker BEFORE launching so concurrent turn-complete events in the
-    # same window are debounced even though the detached import runs async.
-    try:
-        _MARKER.parent.mkdir(parents=True, exist_ok=True)
-        _MARKER.touch()
-    except OSError:
-        pass
-
     # Detached, output discarded — never slow or crash the Codex session.
     try:
         subprocess.Popen(
@@ -86,6 +78,15 @@ def main() -> int:
             cwd=str(importer.parent.parent),
             env={**os.environ},
         )
+    except OSError:
+        return 0  # launch failed — do NOT stamp, so the next turn retries
+
+    # Stamp only after a successful launch, so a failed/never-started import
+    # doesn't debounce (and drop) the next _MIN_INTERVAL_S of turns. Codex
+    # turn-complete events are sequential, so there's no concurrent-launch race.
+    try:
+        _MARKER.parent.mkdir(parents=True, exist_ok=True)
+        _MARKER.touch()
     except OSError:
         pass
     return 0

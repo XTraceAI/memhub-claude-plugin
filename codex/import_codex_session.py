@@ -131,19 +131,26 @@ def main() -> int:
     print(f"title           : {title}")
     print("-" * 56)
 
-    # Materialise the Claude-shaped transcript for import_session.py. Named
-    # codex-<sid>.jsonl so a bare run (no --conversation-id) still gets a
-    # stable, codex-scoped id from the file stem.
+    body = "".join(json.dumps(r) + "\n" for r in records)
+
+    if args.dry_run:
+        # Deterministic path: overwritten on re-run (so dry-runs don't
+        # accumulate) and left in place for inspection — that's the point of
+        # --dry-run.
+        transcript = Path(tempfile.gettempdir()) / f"memhub-codex-dryrun-{sid}.jsonl"
+        transcript.write_text(body)
+        print(f"[dry-run] wrote {len(records)} records -> {transcript}")
+        print("[dry-run] skipping import_conversation (file left for inspection)")
+        return 0
+
+    # Real import: a throwaway temp dir, always cleaned up. Named codex-<sid>.jsonl
+    # so a bare run (no --conversation-id) still gets a stable, codex-scoped id
+    # from the file stem.
     tmpdir = Path(tempfile.mkdtemp(prefix="memhub-codex-"))
     transcript = tmpdir / f"codex-{sid}.jsonl"
-    transcript.write_text("".join(json.dumps(r) + "\n" for r in records))
+    transcript.write_text(body)
 
     try:
-        if args.dry_run:
-            print(f"[dry-run] wrote {len(records)} records -> {transcript}")
-            print("[dry-run] skipping import_conversation")
-            return 0
-
         cmd = [
             "uv", "run", "--with", "mcp", "python", str(_IMPORT_SESSION),
             "--session", str(transcript),

@@ -108,6 +108,26 @@ def test_synthetic():
     print("PASS test_synthetic")
 
 
+def test_missing_call_id():
+    """A malformed tool call/output without call_id must never emit id=None,
+    and an id-less output pairs with the most recent call."""
+    roll = [
+        _line("session_meta", {"id": "s", "cwd": "/x"}),
+        _line("response_item", {"type": "function_call", "name": "f",
+                               "arguments": "{}"}),  # no call_id
+        _line("response_item", {"type": "function_call_output",
+                               "output": "ok"}),      # no call_id
+    ]
+    recs, _ = rollout_to_claude_records(roll)
+    tu = recs[1]["message"]["content"][0]
+    tr = recs[2]["message"]["content"][0]
+    assert tu["type"] == "tool_use" and tu["id"], tu
+    assert tr["type"] == "tool_result", tr
+    assert tr["tool_use_id"] == tu["id"], (tu, tr)  # output paired to the call
+    assert tu["id"] is not None and tr["tool_use_id"] is not None
+    print("PASS test_missing_call_id")
+
+
 def _kind(r):
     m = r["message"]
     c = m["content"]
@@ -150,5 +170,6 @@ def test_real_smoke():
 if __name__ == "__main__":
     test_clean_user_text()
     test_synthetic()
+    test_missing_call_id()
     test_real_smoke()
     print("ALL PASS")

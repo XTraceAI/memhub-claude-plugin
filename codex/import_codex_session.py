@@ -99,6 +99,7 @@ def main() -> int:
 
     n_tool = sum(1 for r in records
                  if isinstance(r["message"].get("content"), list)
+                 and r["message"]["content"]
                  and r["message"]["content"][0].get("type") == "tool_use")
     print(f"rollout         : {f}")
     print(f"codex session   : {sid}   (model {meta.get('model')})")

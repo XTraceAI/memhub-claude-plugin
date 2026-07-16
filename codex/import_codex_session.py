@@ -67,13 +67,14 @@ def resolve_rollout(session: str) -> tuple[Path | None, str]:
         return None, f"no Codex rollouts under {_SESSIONS}"
     if session == "latest":
         return max(files, key=lambda f: f.stat().st_mtime), ""
-    # Match the session UUID exactly (anchored on the '-' before it, so a partial
-    # id can't match mid-UUID). Ambiguity is an error, not a largest-file guess —
-    # picking the wrong session would fold-forward the wrong conversation's gist.
+    # Match the session UUID exactly — a partial/fragment id does NOT match (it
+    # would risk selecting the wrong session and folding-forward the wrong
+    # conversation's gist). Ambiguity is an error, never a largest-file guess.
     sid = session.removesuffix(".jsonl")
-    hits = [f for f in files if rollout_uuid(f) == sid or f.stem.endswith(f"-{sid}")]
+    hits = [f for f in files if rollout_uuid(f) == sid]
     if not hits:
-        return None, f"no Codex rollout matching session id {sid!r} under {_SESSIONS}"
+        return None, (f"no Codex rollout with session UUID {sid!r} under "
+                      f"{_SESSIONS} (pass the full UUID or a rollout path)")
     if len(hits) > 1:
         return None, (f"ambiguous session id {sid!r}: {len(hits)} rollouts match — "
                       "pass the full session UUID or the rollout path")

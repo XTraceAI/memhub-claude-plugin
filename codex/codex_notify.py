@@ -46,6 +46,23 @@ def _debounced() -> bool:
         return False  # no marker yet (or unreadable) → not debounced
 
 
+def _session_arg(event: dict) -> str:
+    """The specific session to import — from the notify event when it names one,
+    else ``latest``.
+
+    ``--session latest`` picks the globally-newest rollout by mtime, which is the
+    RIGHT session only when a single Codex session is active; with concurrent
+    sessions it could import an unrelated one. Codex's notify payload shape
+    varies by version, so try the plausible identifier fields (a rollout path or
+    a session UUID) and fall back to ``latest``."""
+    for k in ("rollout-path", "rollout_path", "session-id", "session_id",
+              "conversation-id", "conversation_id", "thread-id", "thread_id"):
+        v = event.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return "latest"
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         return 0
@@ -70,7 +87,7 @@ def main() -> int:
     try:
         subprocess.Popen(
             ["uv", "run", "--with", "mcp", "python", str(importer),
-             "--session", "latest"],
+             "--session", _session_arg(event)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,

@@ -81,9 +81,12 @@ notify = ["python3", "/absolute/path/to/codex/codex_notify.py"]
 ```
 
 `codex_notify.py` is a thin filter: on a turn/session-completion event it runs
-`import_codex_session.py --session latest` detached, with a debounce (one
-auto-import per ~2 min) so a burst of turns doesn't re-send the whole rollout
-each time. Whether Codex emits a usable completion event varies by version —
-confirm with your build before relying on it; the manual import above always
-works.
+`import_codex_session.py` detached, with a debounce (one auto-import per ~2 min)
+so a burst of turns doesn't re-send the whole rollout each time. It imports the
+session named in the notify event when the payload identifies one; otherwise it
+falls back to `--session latest` (the newest rollout by mtime), which is the
+right session only when a **single** Codex session is active — with concurrent
+sessions, prefer the manual import. Whether Codex emits a usable completion
+event (and which id fields it carries) varies by version — confirm with your
+build before relying on it; the manual import above always works.
 ```

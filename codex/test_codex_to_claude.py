@@ -129,6 +129,17 @@ def test_missing_call_id():
     print("PASS test_missing_call_id")
 
 
+def test_session_arg():
+    from codex_notify import _session_arg
+    assert _session_arg({"type": "agent-turn-complete"}) == "latest"
+    assert _session_arg({"session-id": "019c6e48-..."}) == "019c6e48-..."
+    assert _session_arg({"rollout_path": "/x/rollout-...jsonl"}) == "/x/rollout-...jsonl"
+    # rollout path preferred over a bare id when both present
+    assert _session_arg({"rollout-path": "/p.jsonl", "session_id": "u"}) == "/p.jsonl"
+    assert _session_arg({"session_id": "   "}) == "latest"  # blank ignored
+    print("PASS test_session_arg")
+
+
 def test_rollout_uuid():
     from import_codex_session import rollout_uuid
     p = "/x/2026/02/17/rollout-2026-02-17T17-06-25-019c6e48-b66c-7881-9301-99c87fc66cf6.jsonl"
@@ -181,6 +192,7 @@ if __name__ == "__main__":
     test_clean_user_text()
     test_synthetic()
     test_missing_call_id()
+    test_session_arg()
     test_rollout_uuid()
     test_real_smoke()
     print("ALL PASS")

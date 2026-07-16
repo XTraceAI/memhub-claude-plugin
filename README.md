@@ -34,7 +34,18 @@ plugins/fleet/
 ├── scripts/fleet_start_launch.sh   # session launcher (tmux/iTerm/Terminal/headless)
 ├── skills/start/                   # /fleet:start — decompose, provision, launch
 └── skills/status/                  # /fleet:status — pretty-print the board
+codex/                              # OpenAI Codex integration (not a Claude plugin)
+├── codex_to_claude.py              # transform a Codex rollout → Claude Code record shape
+├── import_codex_session.py         # import a Codex session into MemHub (reuses import_session.py)
+├── codex_notify.py                 # optional `notify` hook for auto-capture
+└── README.md                       # Codex MCP config + session capture
 ```
+
+**Using Codex instead of Claude Code?** See [`codex/README.md`](codex/README.md):
+the MemHub MCP server drops into `~/.codex/config.toml`, and
+`import_codex_session.py` captures Codex sessions into the same team memory (it
+reshapes the rollout so MemHub's agentic extraction kicks in — no backend
+change).
 
 ## Install
 

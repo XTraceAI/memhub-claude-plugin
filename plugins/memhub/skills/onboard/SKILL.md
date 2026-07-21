@@ -25,7 +25,16 @@ Do exactly this:
 - `list_agent_brains` → **exact-name match**. Reuse the existing id if found (a
   teammate may have created it). **Only** `create_agent_brain` when there is no
   exact match — do NOT mint a second room for a repo that already has one.
-- Record the `agent_brain_id`; call it `ROOM`.
+- Record the `agent_brain_id`; call it `ROOM` (it *is* the web app's `cbId`).
+- **Open the brain in the browser** so the user can watch it fill. The web app is
+  `https://mem.xtrace.ai` (prod; internal-dev staging = `https://staging.mem.xtrace.ai`,
+  matching the seed endpoint in §2), and a brain lives at `/cbs/<ROOM>`. Print the
+  link, then best-effort open it (never fail the flow if no opener is available):
+  ```bash
+  URL="https://mem.xtrace.ai/cbs/<ROOM>"
+  echo "Your agent brain: $URL"
+  (open "$URL" || xdg-open "$URL") >/dev/null 2>&1 &
+  ```
 
 ## 2. Seed it — ONE substantive session (cross the cold start)
 Seed from **exactly one** session, not many. One is enough to fire recall + get a

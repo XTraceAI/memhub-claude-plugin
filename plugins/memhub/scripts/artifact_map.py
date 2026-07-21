@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -75,9 +76,18 @@ def cmd_add(args: argparse.Namespace) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     # ensure_ascii=False: artifact names carry em-dashes/arrows and the map is
     # read by humans in diffs.
-    path.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    body = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    # Atomic: a half-written map is unreadable, and _load refuses to write over
+    # an unreadable map — so an interrupted write would strand every later
+    # `add` behind a manual repair. Temp sibling + os.replace is atomic within
+    # the same filesystem.
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(body, encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
     verb = "updated" if replaced else "linked"
     print(f'{verb} "{args.name}" -> {args.glob} in {MAP_RELPATH}')
     return 0

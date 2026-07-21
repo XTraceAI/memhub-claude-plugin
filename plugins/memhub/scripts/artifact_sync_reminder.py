@@ -210,8 +210,14 @@ def main() -> None:
         fresh.append(link)
     if not fresh:
         return
-    _record(state, seen)
 
+    # Emit BEFORE persisting the debounce, and only persist if the emit
+    # succeeded. Recording first means a killed process (10s hook timeout,
+    # SIGTERM) or a failed write (BrokenPipeError, UnicodeEncodeError on the
+    # ⚠️/em-dash under a non-UTF-8 stdout locale) leaves the artifact marked
+    # reminded for the rest of the session while the agent never saw it — a
+    # permanent silent miss. This ordering fails the other way, toward a
+    # duplicate reminder, which is the acceptable failure mode.
     print(
         json.dumps(
             {
@@ -222,8 +228,10 @@ def main() -> None:
                     ),
                 }
             }
-        )
+        ),
+        flush=True,
     )
+    _record(state, seen)
 
 
 if __name__ == "__main__":

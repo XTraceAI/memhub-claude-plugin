@@ -139,6 +139,44 @@ def test_missing_and_malformed_map_are_clean_noops():
         assert _run(_repo(tmp / "c", '{"links": "nope"}'), "appworld/run.py", "s3", tmp) == ""
 
 
+def test_failed_emit_does_not_burn_the_debounce():
+    # Pinned: the debounce is persisted only AFTER the reminder is out. If it
+    # were recorded first, a killed process or a failing write (BrokenPipe,
+    # UnicodeEncodeError under a non-UTF-8 locale) would mark the artifact
+    # reminded while the agent never saw it — a permanent silent miss for the
+    # rest of the session. Failing the emit here must leave no state behind.
+    import io
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        root = _repo(tmp, json.dumps(MAP))
+        payload = {
+            "tool_name": "Edit",
+            "tool_input": {"file_path": str(root / "appworld/run.py")},
+            "cwd": str(root),
+            "session_id": "sess-emit-fail",
+        }
+        state = Path(tempfile.gettempdir()) / f"{asr.STATE_PREFIX}sess-emit-fail.json"
+        state.unlink(missing_ok=True)
+
+        def boom(*_args, **_kwargs):
+            raise BrokenPipeError("hook consumer went away")
+
+        real_stdin = sys.stdin
+        sys.stdin = io.StringIO(json.dumps(payload))
+        asr.print = boom  # module global shadows the builtin
+        try:
+            try:
+                asr.main()
+            except BrokenPipeError:
+                pass  # the __main__ guard swallows this in the real hook
+        finally:
+            sys.stdin = real_stdin
+            del asr.print
+
+        assert not state.exists(), "debounce was recorded despite a failed emit"
+
+
 # --- artifact_map.py writes what the hook reads -----------------------------
 
 def _git_init(root: Path) -> None:

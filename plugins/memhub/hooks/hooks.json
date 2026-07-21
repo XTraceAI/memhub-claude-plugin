@@ -49,6 +49,17 @@
         ]
       },
       {
+        "matcher": "^(Edit|MultiEdit|Write|NotebookEdit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "statusMessage": "MemHub: checking artifact links",
+            "command": "if [ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ]; then python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/artifact_sync_reminder.py\"; fi"
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {

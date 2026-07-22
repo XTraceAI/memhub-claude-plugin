@@ -64,7 +64,20 @@ repo would get a different name:
 git rev-parse --path-format=absolute --git-common-dir   # → /path/to/repo/.git
 ```
 
-Take the basename of that path's parent directory:
+Do NOT blindly take the parent directory — that only works for the standard
+layout. Normalize: if the last path component is exactly `.git`, drop it;
+then strip a trailing `.git` extension from what remains; then take the
+basename.
+
+```
+/path/to/repo/.git   → /path/to/repo   → repo    (standard worktree)
+/path/to/repo.git    → /path/to/repo   → repo    (bare repo)
+/path/to/repo        → /path/to/repo   → repo    (custom GIT_DIR)
+```
+
+Taking the parent unconditionally would name the brain after the CONTAINING
+directory in the latter two cases — a wrong lookup key, which mints an
+unfindable room.
 
 ```
 Repo: <basename>

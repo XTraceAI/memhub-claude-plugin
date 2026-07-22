@@ -44,23 +44,52 @@ Result: `Repo: XTraceAI/xmem`.
 **Worktrees and subdirectories.** All worktrees of a repo, and any
 subdirectory within it, resolve to the SAME brain — because `origin` is the
 same. Never derive the name from the current directory when a remote exists.
-This is why the remote, not the path, is the source of truth.
+This is why the remote, not the path, is the source of truth. The no-remote
+fallback below preserves this guarantee by keying on the main worktree rather
+than the current one.
 
 **Monorepos.** One repo is one brain. Do not invent per-package brains; the
 package is a detail inside the room, not a room of its own.
 
 **Multiple remotes.** Use `origin`. If `origin` is missing but other remotes
 exist, do NOT guess which is canonical — ask the user which remote to use,
-or fall back to §3 if they don't care.
+or apply the no-remote rule below if they don't care.
 
-**No remote, but inside a git repo.** Use:
+**No remote, but inside a git repo.** Derive from the MAIN worktree, never
+from the current directory — in a linked worktree `git rev-parse
+--show-toplevel` returns *that worktree's* path, so every worktree of one
+repo would get a different name:
+
+```sh
+git rev-parse --path-format=absolute --git-common-dir   # → /path/to/repo/.git
+```
+
+Do NOT blindly take the parent directory — that only works for the standard
+layout. Normalize: if the last path component is exactly `.git`, drop it;
+then strip a trailing `.git` extension from what remains; then take the
+basename.
 
 ```
-Repo: <basename of `git rev-parse --show-toplevel`>
+/path/to/repo/.git   → /path/to/repo   → repo    (standard worktree)
+/path/to/repo.git    → /path/to/repo   → repo    (bare repo)
+/path/to/repo        → /path/to/repo   → repo    (custom GIT_DIR)
 ```
 
-Say out loud that the name came from the directory, not a remote, so the
-user can correct it before it becomes a lookup key.
+Taking the parent unconditionally would name the brain after the CONTAINING
+directory in the latter two cases — a wrong lookup key, which mints an
+unfindable room.
+
+```
+Repo: <basename>
+```
+
+**This name can never match a remote-derived `Repo: <org>/<name>`** — it has
+one segment where that has two, and there is no way to recover the org
+without a remote. So it is a genuinely DISTINCT brain, not the same room
+under a shorter name. Say so out loud and confirm before creating one: if the
+repo has a remote anywhere else (a teammate's clone, CI), their room is the
+two-segment one, and creating this would fork the repo's memory in exactly
+the way §1 warns about.
 
 **Not a git repository at all.** Do NOT invent a repo name. Fall back to
 plain workspace memory (omit `agent_brain_id` entirely), and **tell the user

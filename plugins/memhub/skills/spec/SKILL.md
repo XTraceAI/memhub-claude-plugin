@@ -1,7 +1,7 @@
 ---
 description: Use when the user wants spec-driven development backed by team memory — create, revise, drift-check, or report on a spec held in MemHub (e.g. "start a spec for X", "save this as the team spec", "revise the spec", "did the spec change under me?", "what's the status of the retry-policy spec?"). Specs are versioned artifacts in the repo's shared agent brain; every revision carries a rationale and is diffable.
 argument-hint: <init|revise|check|status> [file|topic] [...]
-allowed-tools: mcp__memhub__search_memory, mcp__memhub__get_artifact, mcp__memhub__get_artifact_lineage, mcp__memhub__diff_artifact_versions, mcp__memhub__list_agent_brains, mcp__memhub__create_agent_brain, mcp__memhub__share_agent_brain, mcp__memhub__list_teammates, mcp__memhub__list_tags, Bash
+allowed-tools: mcp__plugin_memhub_memhub__search_memory, mcp__plugin_memhub-staging_memhub__search_memory, mcp__plugin_memhub_memhub__get_artifact, mcp__plugin_memhub-staging_memhub__get_artifact, mcp__plugin_memhub_memhub__get_artifact_lineage, mcp__plugin_memhub-staging_memhub__get_artifact_lineage, mcp__plugin_memhub_memhub__diff_artifact_versions, mcp__plugin_memhub-staging_memhub__diff_artifact_versions, mcp__plugin_memhub_memhub__list_agent_brains, mcp__plugin_memhub-staging_memhub__list_agent_brains, mcp__plugin_memhub_memhub__create_agent_brain, mcp__plugin_memhub-staging_memhub__create_agent_brain, mcp__plugin_memhub_memhub__share_agent_brain, mcp__plugin_memhub-staging_memhub__share_agent_brain, mcp__plugin_memhub_memhub__list_teammates, mcp__plugin_memhub-staging_memhub__list_teammates, mcp__plugin_memhub_memhub__list_tags, mcp__plugin_memhub-staging_memhub__list_tags, Bash
 ---
 
 Run spec-driven development on top of MemHub. The model:

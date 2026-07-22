@@ -1,7 +1,7 @@
 ---
 description: Use when the user asks to import, upload, or save a Claude Code session/conversation/transcript into MemHub or team memory (e.g. "import this session into memhub", "save session <id> to memhub", "put that conversation in an agent brain"). Ships the transcript via a terminal upload script — any size, no token-by-token re-emit.
 argument-hint: <session-id-or-path> [title...]
-allowed-tools: Bash, mcp__memhub__list_agent_brains
+allowed-tools: Bash, mcp__plugin_memhub_memhub__list_agent_brains, mcp__plugin_memhub-staging_memhub__list_agent_brains
 ---
 
 Import a past Claude Code session into MemHub team memory on demand. A helper

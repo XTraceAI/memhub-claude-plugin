@@ -16,11 +16,13 @@ already resolved.
    `gh pr view --json number,url,state,headRefName` on the current branch.
    PR merged or closed → report that and END the loop (no further passes).
 2. **Resolve the repo's room** (first pass only — reuse the id afterwards).
-   Same convention as the spec skill: name `Repo: <org>/<name>` from
-   `git remote get-url origin` (host and `.git` stripped); no remote →
-   `Repo: ` + basename of `git rev-parse --show-toplevel`. Match it EXACTLY
-   in `list_agent_brains` — a teammate may have created it; use theirs.
-   No match → `create_agent_brain` (omit `workspace_id`).
+   Name `Repo: <org>/<name>` from `git remote get-url origin` (host and
+   `.git` stripped). Match it EXACTLY in `list_agent_brains` — a teammate may
+   have created it; use theirs. No match → `create_agent_brain` (omit
+   `workspace_id`). Edge cases (SSH remotes, no remote, worktrees, not a git
+   repo) and the create-time rules — resolve before create, required
+   description, report where it landed — are in
+   `${CLAUDE_PLUGIN_ROOT}/references/repo-brain.md`.
 3. **Collect findings** (`{owner}/{repo}` and `{n}` from step 1):
    - `gh pr view <n> --json state,mergeable,statusCheckRollup`
    - `gh api repos/{owner}/{repo}/pulls/{n}/comments --paginate` (inline

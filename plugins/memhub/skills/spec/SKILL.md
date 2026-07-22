@@ -6,14 +6,16 @@ allowed-tools: mcp__memhub__search_memory, mcp__memhub__get_artifact, mcp__memhu
 
 Run spec-driven development on top of MemHub. The model:
 
-- **One agent brain per repo** — the repo's shared room. Its exact name is
-  derived from the git remote: `Repo: <org>/<name>` (from
-  `git remote get-url origin`, host and `.git` stripped — e.g.
-  `Repo: XTraceAI/memhub-claude-plugin`); no remote → `Repo: ` + basename of
-  `git rev-parse --show-toplevel`. ALL of the repo's specs live there,
-  alongside reviews, ADRs, and imported implementation sessions — share it
-  once per teammate and every current and future spec in the repo is visible
-  to them.
+- **One agent brain per repo** — the repo's shared room, named
+  `Repo: <org>/<name>` from `git remote get-url origin` (host and `.git`
+  stripped — e.g. `Repo: XTraceAI/memhub-claude-plugin`). Match it EXACTLY in
+  `list_agent_brains` and reuse what you find — a teammate may have created
+  it. Edge cases (SSH remotes, no remote, worktrees, not a git repo) and the
+  create-time rules — resolve before create, required description, report
+  where it landed — are in `${CLAUDE_PLUGIN_ROOT}/references/repo-brain.md`.
+  ALL of the repo's specs live there, alongside reviews, ADRs, and imported
+  implementation sessions — share it once per teammate and every current and
+  future spec in the repo is visible to them.
 - The **spec is a versioned artifact** (`artifact_type: "spec"`) inside that
   room. Revisions are versions with a `rationale`; `diff_artifact_versions`
   shows what moved and `get_artifact_lineage` shows why, in order.

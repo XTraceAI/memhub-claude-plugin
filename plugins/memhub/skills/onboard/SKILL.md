@@ -1,7 +1,7 @@
 ---
 description: Use when a new user wants to set up MemHub / an agent brain for their repo, or asks to "onboard", "get started", "set up my brain", or "seed a brain from my work". Crosses the empty-brain cold start — creates the repo's agent brain, seeds it from a real Claude Code session, shows the compiled overview, and proves proactive recall on the repo's own symbols — then reports an activation funnel.
 argument-hint: [session-id-or-path]
-allowed-tools: Bash, mcp__plugin_memhub_memhub-staging__list_agent_brains, mcp__plugin_memhub_memhub-staging__create_agent_brain, mcp__plugin_memhub_memhub-staging__get_brain_overview, mcp__plugin_memhub_memhub-staging__recall_directives, mcp__plugin_memhub_memhub-staging__search_brains
+allowed-tools: Bash, mcp__plugin_memhub_memhub__list_agent_brains, mcp__plugin_memhub_memhub__create_agent_brain, mcp__plugin_memhub_memhub__get_brain_overview, mcp__plugin_memhub_memhub__recall_directives, mcp__plugin_memhub_memhub__search_brains, mcp__plugin_memhub-staging_memhub__list_agent_brains, mcp__plugin_memhub-staging_memhub__create_agent_brain, mcp__plugin_memhub-staging_memhub__get_brain_overview, mcp__plugin_memhub-staging_memhub__recall_directives, mcp__plugin_memhub-staging_memhub__search_brains
 ---
 
 Onboard a new user onto MemHub for the repo they're in. The value of an agent
@@ -20,11 +20,15 @@ Do exactly this:
 
 ## 1. Resolve the repo room (the durable boundary — never a blank brain)
 - Derive the room name from the repo: `Repo: <org>/<name>` from
-  `git remote get-url origin` (host + `.git` stripped); no remote → `Repo: ` +
-  basename of `git rev-parse --show-toplevel`.
+  `git remote get-url origin` (host + `.git` stripped).
 - `list_agent_brains` → **exact-name match**. Reuse the existing id if found (a
   teammate may have created it). **Only** `create_agent_brain` when there is no
-  exact match — do NOT mint a second room for a repo that already has one.
+  exact match — do NOT mint a second room for a repo that already has one, and
+  give it a real one-line description.
+- Edge cases (SSH remotes, no remote, worktrees, **not a git repo at all**) and
+  the full create-time rules are in
+  `${CLAUDE_PLUGIN_ROOT}/references/repo-brain.md` — read it if the common path
+  above doesn't apply cleanly.
 - Record the `agent_brain_id`; call it `ROOM`.
 
 ## 2. Seed it — ONE substantive session (cross the cold start)
